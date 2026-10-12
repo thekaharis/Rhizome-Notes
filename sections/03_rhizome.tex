@@ -80,7 +80,7 @@ independently of the field that produced the gates. State dependence cannot make
   \hat\kernel(q) &= 0 \quad\text{for } \abs{q}>\kmax .
   \end{aligned}
 \end{equation}
-The kernel only transports the band $\abs{q}\le\kmax$. Even so, the source gate first folds all input wavenumbers into that band, through $\widehat{BV}(q)=\sum_p\hat B(q-p)\hat V(p)$, and the receiver gate then spreads the transported band over every wavenumber present in $A$. If the receiver gate is sharp, for example close to zero inside an ionized region and close to two outside, a smooth message is multiplied by a sharp mask, and the result has a sharp edge exactly where the gate changes. The rhizome can thus carry information smoothly over long distances with few modes while placing sharp structure where the state of the field puts it. Whether the trained gates actually behave like this has not been checked directly; \cref{eq:rhizome-mode-coupling} shows only that the mechanism is available.
+The kernel only transports the band $\abs{q}\le\kmax$. Even so, the source gate first folds all input wavenumbers into that band, through $\widehat{BV}(q)=\sum_p\hat B(q-p)\hat V(p)$, and the receiver gate then spreads the transported band over every wavenumber present in $A$. If the receiver gate is sharp, for example close to zero inside an ionized region and close to two outside, a smooth message is multiplied by a sharp mask, and the result has a sharp edge exactly where the gate changes. The rhizome can thus carry information smoothly over long distances with few modes while placing sharp structure where the state of the field puts it. In a trained model the receiver gates do vary strongly in space (\cref{fig:mechanism}); whether this is what produces sharp edges in the output has not been tested directly, and \cref{eq:rhizome-mode-coupling} shows only that the mechanism is available.
 
 \paragraph{Iteration as a path series.} A single application of \cref{eq:rhizome-effective-kernel} couples $r'$ to $r$ through the gates at the two endpoints only. Iteration adds paths. Ignoring for a moment the nonlinearity and the damping of the update, and freezing the gates, the recurrence becomes $v^{t+1}=c+\Kop v^t$ with $\Kop=M_A C_{\kernel} M_B$. After $\Niter$ steps this gives
 \begin{equation}
@@ -160,6 +160,15 @@ Three properties of the gates are worth stating explicitly:
   \item \textbf{They are channel-wise.} Each of the $\dv$ channels has its own gate, so different channels can carry different kinds of information with different reach. Channels are mixed only by the kernel $\kernel$ and by the pointwise networks.
 \end{itemize}
 No physical constraint is imposed: the operator does not enforce reciprocal couplings, conservation of photons or any form of radiative transfer. Whatever physical interpretation the gates acquire is learned from the data.
+
+\paragraph{What trained gates do.} \Cref{fig:mechanism} inspects a rhizome trained on synthetic toy lightcones ($32\times32$ slices, long single-seed run, four updates). It shows a validation slice at $z=10.55$ with mean neutral fraction 0.50 and one receiver cell on an ionization front. The base kernel is a compact, translation-invariant blob (b). The receiver gate varies strongly across the slice (c). The source gate varies only between 1.04 and 1.12 in channel RMS (d), because individual channels move in opposite directions and partly cancel. Panels (e--h) show how the gates re-weight the connections into the receiver cell. They boost a ring of sources at intermediate distance and damp distant ones by up to about 20\%, while the mean gain grows from 0.95 to 1.67 over the four updates. Once this gain is normalized out, the shape of the effective connection map changes by only about 4\% between the first and the last update: this model re-weights its connections moderately rather than re-wiring them. These are gains on the transmitted value for one slice and one cell, not a measure of causal influence, which would need an input-Jacobian or perturbation study.
+
+\begin{figure*}[!tp]
+  \centering
+  \figplaceholder[\linewidth]{rhizome/rhizome_mechanism.pdf}{Rhizome mechanism.}
+  \caption{Learned interaction of a trained rhizome (synthetic toy lightcones, validation slice at $z=10.55$, $\langle\xHI\rangle=0.50$, four updates). The ring marks the receiver cell $i$ on an ionization front; black lines are the true $\xHI=0.5$ contour. (a)~Input density band. (b)~Norm of the learned kernel $\kernel(r_i-r_j)$, which is translation invariant. (c,\,d)~Channel-RMS receiver and source gates at the last update. (e--h)~Gate re-weighting of the connections into $i$, $M_t(j)=\norm{\diag(A_i)\,\kernel(r_i-r_j)\,\diag(B_j)}_F/\norm{\kernel(r_i-r_j)}_F$, divided by its spatial mean; the mean gain is printed in each panel. The gates boost a ring of sources at intermediate distance and damp distant ones by up to ${\approx}20\%$, while the overall gain grows from 0.95 to 1.67 over the four updates. These are gains on the transmitted value, not output sensitivities.}
+  \label{fig:mechanism}
+\end{figure*}
 
 % ---------------------------------------------------------------------
 \subsection{Recurrent time-stepping}
@@ -304,6 +313,22 @@ The rhizome makes fewer structural assumptions than the architectures of \cref{s
 
 Compared with the \textbf{U-Net and U-FNO}, it has no convolution stencils, no pooling and no explicit hierarchy of scales. Multi-scale behaviour has to come from the kernel, which spans all scales up to $\kmax$, and from the repeated updates. This keeps the parameterization independent of the grid, which the convolutional path of the U-FNO does not.
 
+\begin{figure*}[!tp]
+  \centering
+  \includegraphics[width=0.49\linewidth,trim=0 447.6 0 0,clip]{rhizome/rhizome_network.pdf}\hfill
+  \includegraphics[width=0.49\linewidth,trim=0 223.85 0 222,clip]{rhizome/rhizome_network.pdf}\\[6pt]
+  \begin{minipage}[b]{0.49\linewidth}
+    \includegraphics[width=\linewidth,trim=0 0 0 445.75,clip]{rhizome/rhizome_network.pdf}
+  \end{minipage}\hfill
+  \begin{minipage}[b]{0.47\linewidth}
+    \caption{How cells exchange information, on an $8\times8$ lattice of cells of the toy slice of \cref{fig:mechanism} (shaded: true neutral region). (a)~A U-Net-style hierarchy: information moves through coarse parent nodes, so two neighbouring cells on either side of a block boundary (green) meet only at the root. (b)~An ungated global kernel, as in a Fourier layer, here the trained rhizome's own $\kernel$ with $A=B=1$. Lines show the incoming connections of four cells; every cell is reached by every other, and the pattern is identical around each cell. (c)~The trained rhizome at update 4, for the same four cells: edge $j\to i$ carries $\norm{\diag(A_i)\,\kernel(r_i-r_j)\,\diag(B_j)}_F$, so it is scaled by both the receiver's gate (ring; channel RMS printed) and the sender's gate (dot shade; channel RMS, which spans only 1.04--1.12 and is stretched over the full shade range). The receiver gate scales a whole fan by 0.55--1.49; sender gates re-weight individual edges within a fan by 0.88--1.21. Width and opacity are relative to each panel's maximum; edges below 10\% of it, and edges crossing the periodic boundary, are omitted.}
+    \label{fig:network}
+  \end{minipage}
+\end{figure*}
+
 Compared with \textbf{attention}, it shares the central idea that the coupling between two points should depend on their content, but it restricts that dependence to a product of per-cell factors around a stationary kernel. This restriction is what brings the cost down from $\mathcal{O}(N^2)$ to $\mathcal{O}(N\log N)$: the rhizome trades the full flexibility of pairwise attention for a form that can be evaluated with a single FFT pair per update.
+
+\Cref{fig:network} contrasts the three communication patterns on an $8\times8$ lattice of cells from the same toy slice as \cref{fig:mechanism}. In a U-Net-style hierarchy (a), information moves through coarse parent nodes, so two neighbouring cells on opposite sides of a block boundary meet only at the root; skip connections and overlapping stencils soften this in a real U-Net. A global stationary kernel (b) connects every cell to every other cell with the same pattern around each of them. In the trained rhizome (c), each edge $j\to i$ is scaled by the receiver's gate and by the sender's gate. In this model the receiver dominates. Of the variance of the logarithm of the gate factor over all lattice pairs (0.125), 0.117 is explained by the receiver alone and 0.002 by the sender alone. A receiver's gate scales its whole incoming fan by 0.55--1.49, while sender gates re-weight individual edges within a fan by only 0.88--1.21. Total incoming strength therefore varies from cell to cell (coefficient of variation 0.32, against zero for the ungated kernel) and tracks the receiver gate almost exactly (correlation 0.997), while outgoing strength varies little (0.04). The connections are also directed: the median asymmetry $\abs{w_{ij}-w_{ji}}/(w_{ij}+w_{ji})$ is 0.17. The weak sender effect is a property of this trained model, not of the architecture.
+
 
 The cost of a forward pass is $\Niter$ times that of one Fourier layer, $\mathcal{O}(\Niter\,\dv\,N\log N)$ for the transforms plus pointwise work, and the parameter count is that of a single update block.
