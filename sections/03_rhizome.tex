@@ -1,0 +1,113 @@
+% =====================================================================
+\section{Rhizome Neural Operator approach}
+\label{sec:rhizome}
+% =====================================================================
+
+\TODO{Intro and the rhizome metaphor: every cell can connect to every
+other, and the strength of those connections is set by the current
+state rather than fixed by a hierarchy.}
+
+% ---------------------------------------------------------------------
+\subsection{Design principles}
+\label{sec:rhizome-principles}
+
+\TODO{Single interaction mechanism (no separate local/global branches);
+connections are a state-dependent integral operator; weight-shared
+recurrence.}
+
+% ---------------------------------------------------------------------
+\subsection{State-dependent integral interaction}
+\label{sec:rhizome-interaction}
+
+At iteration $t$, cell $i$ at position $r_i$ receives the message
+\begin{equation}
+  \label{eq:rhizome-message}
+  \msg_i^t = \frac{1}{N}\sum_{j=1}^{N}
+  \diag\!\big(\Agate(\h_i^t,\cond_i)\big)\,
+  \kernel(r_i-r_j)\,
+  \diag\!\big(\Bgate(\h_j^t,\cond_j)\big)\,
+  \Vval(\h_j^t,\cond_j),
+\end{equation}
+where
+\begin{itemize}
+  \item $\Bgate$ is the learned \emph{source} (transmission) gate,
+  \item $\Agate$ is the learned \emph{receiver} (response) gate,
+  \item $\kernel$ is a learned periodic, channel-mixing spatial kernel,
+  \item $\Vval$ builds the transmitted value from state and conditioning,
+  \item $N = HW$ is uniform quadrature on the normalised periodic box.
+\end{itemize}
+
+\TODO{Continuum form of \eqref{eq:rhizome-message} as an integral over
+$\T^d$; show it reduces to the FNO kernel when $\Agate=\Bgate=1$.}
+
+\begin{proposition}[Reduction to a Fourier layer]
+  \label{prop:fno-limit}
+  \TODO{State and prove.}
+\end{proposition}
+
+% ---------------------------------------------------------------------
+\subsection{Gating: source and receiver factors}
+\label{sec:rhizome-gates}
+
+\TODO{Gate range $(0,2)$ via $2\,\mathrm{sigmoid}$; recomputed every
+iteration; channel-wise factorisation avoids an $N\times N$ edge tensor;
+signed and asymmetric interactions allowed.}
+
+% ---------------------------------------------------------------------
+\subsection{Recurrent time-stepping}
+\label{sec:rhizome-recurrence}
+
+\begin{algorithm}[H]
+  \caption{Rhizome operator forward pass}
+  \label{alg:rhizome}
+  \begin{algorithmic}[1]
+    \Require density bands $\delta$, redshift $z$, parameters $\vartheta$
+    \State $\cond \gets \mathrm{lift}(\delta) + \mathrm{embed}(z,\vartheta)$
+    \State $\h^0 \gets \tanh(\cond)$
+    \For{$t = 0,\dots,\Niter-1$} \Comment{shared weights}
+      \State $(\bm{s},\bm{r}) \gets 2\,\mathrm{sigmoid}\big(\mathrm{gates}([\h^t,\cond])\big)$
+      \State $\bm{v} \gets \Vval([\h^t,\cond])$
+      \State $\msg^t \gets \bm{r}\odot \Finv\!\big(R\cdot\F(\bm{s}\odot\bm{v})\big)$
+      \State $\bm{p} \gets \tanh\big(\mathrm{pointwise}([\h^t,\msg^t,\cond])\big)$
+      \State $\h^{t+1} \gets (1-\Delta t)\,\h^t + \Delta t\,\bm{p}$
+    \EndFor
+    \State \Return $\xHI = \mathrm{sigmoid}\big(\mathrm{decode}(\h^{\Niter})\big)$
+  \end{algorithmic}
+\end{algorithm}
+
+\TODO{Interpretation as explicit Euler integration; stability in
+$\Delta t$; choice of $\Niter$.}
+
+% ---------------------------------------------------------------------
+\subsection{Discretisation and spectral evaluation}
+\label{sec:rhizome-discretisation}
+
+\TODO{FFT is an efficient evaluator of the connections, not a separate
+predictor; orthonormal FFT pair already gives the $1/N$ quadrature;
+real DC and conjugate-frequency constraints for a real kernel.}
+
+% ---------------------------------------------------------------------
+\subsection{Assumptions and limitations}
+\label{sec:rhizome-assumptions}
+
+\begin{assumption}
+  \TODO{e.g.\ periodic domain; translation-invariant base kernel.}
+\end{assumption}
+
+\TODO{No reciprocity, conservation, or radiative-transfer physics is
+imposed; expressivity vs.\ a fully pair-dependent kernel.}
+
+% ---------------------------------------------------------------------
+\subsection{Relation to FNO, U-FNO and attention}
+\label{sec:rhizome-relations}
+
+\TODO{Position against \cref{tab:inductive-biases}; parameter count and
+cost $\mathcal{O}(\Niter\, N\log N)$.}
+
+\begin{figure}[H]
+  \centering
+  \figplaceholder{rhizome_architecture.pdf}{Rhizome block diagram: gates,
+  value map, spectral kernel, recurrence.}
+  \caption{Rhizome Neural Operator architecture.}
+  \label{fig:rhizome-architecture}
+\end{figure}

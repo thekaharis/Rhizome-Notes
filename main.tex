@@ -1,0 +1,43 @@
+% =====================================================================
+%  Rhizome Neural Operator — Technical Report
+%  Build:  latexmk            (config in .latexmkrc; PDF lands in pdf/)
+% =====================================================================
+\documentclass[11pt,a4paper]{article}
+
+\input{preamble}
+
+% ---- Draft switch: set to \draftfalse to hide all \TODO{} notes -----
+\drafttrue
+
+\title{\textbf{Rhizome Neural Operator} \\[0.3em]
+       \large Technical Report}
+\author{Haris Kapetanovic}
+\date{Working draft --- \today}
+
+\begin{document}
+
+\maketitle
+
+\begin{abstract}
+  \TODO{One paragraph: the problem (learning field-to-field maps for
+  21\,cm reionization), what neural operators/FNOs give and miss, what the
+  rhizome operator changes, and the headline result.}
+\end{abstract}
+
+\tableofcontents
+\clearpage
+
+\input{sections/01_neural_operators}
+\input{sections/02_spatial_structure}
+\input{sections/03_rhizome}
+\input{sections/04_training_results}
+
+\clearpage
+\appendix
+\input{appendix/A_notation}
+
+\clearpage
+\bibliographystyle{plainnat}
+\bibliography{references}
+
+\end{document}

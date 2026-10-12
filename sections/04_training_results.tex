@@ -1,0 +1,104 @@
+% =====================================================================
+\section{Training and Results}
+\label{sec:results}
+% =====================================================================
+
+% ---------------------------------------------------------------------
+\subsection{Datasets}
+\label{sec:datasets}
+
+\TODO{Darcy-flow benchmark; synthetic lightcones (toy pilot);
+\cmfast{} ionisation fields \citep{mesinger2011cmfast}. Resolutions,
+splits, conditioning variables.}
+
+\begin{table}[H]
+  \centering
+  \caption{Datasets used in this report.}
+  \label{tab:datasets}
+  \begin{tabular}{llll}
+    \toprule
+    Dataset & Grid & Train / Val / Test & Target \\
+    \midrule
+    Darcy flow           & \TODO{} & \TODO{} & \TODO{} \\
+    Synthetic lightcones & \TODO{} & \TODO{} & $\xHI$ \\
+    \cmfast{}            & \TODO{} & \TODO{} & $\xHI$ \\
+    \bottomrule
+  \end{tabular}
+\end{table}
+
+% ---------------------------------------------------------------------
+\subsection{Training protocol}
+\label{sec:training}
+
+\TODO{Loss, optimiser, LR schedule with validation-driven reductions,
+predefined plateau stopping rule, checkpointing and seeds.}
+
+% ---------------------------------------------------------------------
+\subsection{Evaluation metrics}
+\label{sec:metrics}
+
+\TODO{Relative $L^2$ error; power spectrum ratio; cross-correlation
+$r(k)$; bubble-size distribution; global neutral fraction.}
+
+\begin{equation}
+  \label{eq:cross-correlation}
+  r(k) = \frac{P_{\mathrm{pred}\times\mathrm{true}}(k)}
+              {\sqrt{P_{\mathrm{pred}}(k)\,P_{\mathrm{true}}(k)}}
+\end{equation}
+
+% ---------------------------------------------------------------------
+\subsection{Baselines}
+\label{sec:baselines}
+
+\TODO{FNO, U-FNO, U-Net, recurrent FNO; parameter-matched comparisons.}
+
+% ---------------------------------------------------------------------
+\subsection{Main results}
+\label{sec:main-results}
+
+\begin{table}[H]
+  \centering
+  \caption{Held-out performance. \TODO{fill in}}
+  \label{tab:main-results}
+  \begin{tabular}{lcccc}
+    \toprule
+    Model & Params & Rel.\ $L^2$ $\downarrow$ & $r(k_\ast)$ $\uparrow$ & BSD bias $\downarrow$ \\
+    \midrule
+    FNO       & \TODO{} & \TODO{} & \TODO{} & \TODO{} \\
+    U-FNO     & \TODO{} & \TODO{} & \TODO{} & \TODO{} \\
+    U-Net     & \TODO{} & \TODO{} & \TODO{} & \TODO{} \\
+    Rhizome   & \TODO{} & \TODO{} & \TODO{} & \TODO{} \\
+    \bottomrule
+  \end{tabular}
+\end{table}
+
+\begin{figure}[H]
+  \centering
+  \begin{subfigure}{0.48\linewidth}
+    \centering
+    \figplaceholder[\linewidth]{results_fields.pdf}{Truth vs.\ prediction slices}
+    \caption{Field comparison}
+  \end{subfigure}\hfill
+  \begin{subfigure}{0.48\linewidth}
+    \centering
+    \figplaceholder[\linewidth]{results_rk.pdf}{$r(k)$ per model}
+    \caption{Cross-correlation}
+  \end{subfigure}
+  \caption{Qualitative and spectral comparison. \TODO{}}
+  \label{fig:main-results}
+\end{figure}
+
+% ---------------------------------------------------------------------
+\subsection{Ablations}
+\label{sec:ablations}
+
+\TODO{Stage A: gate mechanism. Stage B: weight sharing and FNO
+reduction. Stage C: operator transfer and 21\,cm validation.
+Decision rules stated before results.}
+
+% ---------------------------------------------------------------------
+\subsection{Discussion}
+\label{sec:discussion}
+
+\TODO{What the gates learn; where the rhizome helps and where it does
+not; resolution transfer; next steps.}

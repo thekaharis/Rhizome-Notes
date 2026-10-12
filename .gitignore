@@ -1,0 +1,16 @@
+# macOS
+.DS_Store
+
+# LaTeX build products
+build/
+*.aux
+*.log
+*.out
+*.toc
+*.bbl
+*.blg
+*.fls
+*.fdb_latexmk
+*.synctex.gz
+*.lof
+*.lot

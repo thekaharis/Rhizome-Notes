@@ -1,0 +1,105 @@
+% =====================================================================
+%  Preamble: packages, layout, environments, macros
+% =====================================================================
+
+% ---- Encoding & fonts ------------------------------------------------
+\usepackage[T1]{fontenc}
+\usepackage[utf8]{inputenc}
+\usepackage{lmodern}
+\usepackage{microtype}
+
+% ---- Layout ----------------------------------------------------------
+\usepackage[margin=2.5cm]{geometry}
+\usepackage{setspace}
+\setstretch{1.1}
+\usepackage{parskip}
+
+% ---- Math ------------------------------------------------------------
+\usepackage{amsmath,amssymb,amsthm,mathtools}
+\usepackage{bm}
+\usepackage{siunitx}
+
+% ---- Figures, tables, algorithms ------------------------------------
+\usepackage{graphicx}
+\graphicspath{{Figures/}}
+\usepackage{subcaption}
+\usepackage{booktabs}
+\usepackage{multirow}
+\usepackage{float}
+\usepackage{algorithm}
+\usepackage{algpseudocode}
+\usepackage{tikz}
+\usetikzlibrary{arrows.meta,positioning,calc,fit,shapes.geometric}
+
+% ---- Colours, references --------------------------------------------
+\usepackage[dvipsnames]{xcolor}
+\usepackage[numbers,sort&compress]{natbib}
+\usepackage[colorlinks=true,linkcolor=NavyBlue,citecolor=ForestGreen,
+            urlcolor=Maroon]{hyperref}
+\usepackage[capitalise,noabbrev]{cleveref}
+
+% ---- Theorem-like environments --------------------------------------
+\theoremstyle{definition}
+\newtheorem{definition}{Definition}[section]
+\newtheorem{assumption}[definition]{Assumption}
+\newtheorem{example}[definition]{Example}
+\theoremstyle{plain}
+\newtheorem{proposition}[definition]{Proposition}
+\newtheorem{lemma}[definition]{Lemma}
+\theoremstyle{remark}
+\newtheorem{remark}[definition]{Remark}
+
+% ---- Draft notes -----------------------------------------------------
+\newif\ifdraft
+\newcommand{\TODO}[1]{\ifdraft{\color{BrickRed}\textbf{[TODO:} #1\textbf{]}}\fi}
+\newcommand{\NOTE}[1]{\ifdraft{\color{RoyalBlue}\textit{[Note: #1]}}\fi}
+
+% Figure that falls back to a framed placeholder if the file is missing
+% Usage: \figplaceholder[width]{file-in-Figures}{placeholder text}
+\newcommand{\figplaceholder}[3][0.8\linewidth]{%
+  \IfFileExists{Figures/#2}{\includegraphics[width=#1]{#2}}{%
+    \fbox{\parbox[c][0.35\textwidth][c]{\dimexpr#1-2\fboxsep-2\fboxrule}{\centering\color{gray}%
+      \textit{Figure placeholder:}\\ \texttt{\detokenize{#2}}\\[0.5em] #3}}}}
+
+% ---- Number sets & generic math -------------------------------------
+\newcommand{\R}{\mathbb{R}}
+\newcommand{\C}{\mathbb{C}}
+\newcommand{\Z}{\mathbb{Z}}
+\newcommand{\T}{\mathbb{T}}   
+\newcommand{\V}{\mathcal{V}}                  % torus / periodic box
+\newcommand{\dd}{\,\mathrm{d}}
+\newcommand{\E}{\mathbb{E}}
+\DeclarePairedDelimiter{\abs}{\lvert}{\rvert}
+\DeclarePairedDelimiter{\norm}{\lVert}{\rVert}
+\DeclarePairedDelimiter{\inner}{\langle}{\rangle}
+\DeclareMathOperator{\diag}{diag}
+\DeclareMathOperator{\softplus}{softplus}
+\DeclareMathOperator*{\argmin}{arg\,min}
+
+% ---- Operator learning ----------------------------------------------
+\newcommand{\G}{\mathcal{G}}                    % true solution operator
+\newcommand{\Gtheta}{\mathcal{G}_\theta}        % learned operator
+\newcommand{\Kop}{\mathcal{K}}                  % kernel integral operator
+\newcommand{\A}{\mathcal{A}}                    % input function space
+\newcommand{\U}{\mathcal{U}}                    % output function space
+\newcommand{\D}{D}                              % spatial domain
+\newcommand{\F}{\mathcal{F}}                    % Fourier transform
+\let\Finv\relax                                % (amssymb defines \Finv)
+\newcommand{\Finv}{\mathcal{F}^{-1}}
+\newcommand{\kmax}{k_{\max}}
+\newcommand{\dv}{d_v}                           % channel width
+
+% ---- Rhizome operator -----------------------------------------------
+\newcommand{\h}{\bm{h}}                         % hidden state
+\newcommand{\cond}{\bm{c}}                      % conditioning
+\newcommand{\msg}{\bm{m}}                       % message
+\newcommand{\Agate}{A_\theta}                   % receiver gate
+\newcommand{\Bgate}{B_\theta}                   % source gate
+\newcommand{\Vval}{V_\theta}                    % value map
+\newcommand{\kernel}{\kappa_\theta}             % spatial kernel
+\newcommand{\Niter}{T}                          % number of iterations
+
+% ---- 21 cm physics --------------------------------------------------
+\newcommand{\xHI}{x_{\mathrm{HI}}}
+\newcommand{\Tb}{\delta T_{\mathrm{b}}}
+\newcommand{\cmfast}{\texttt{21cmFAST}}
