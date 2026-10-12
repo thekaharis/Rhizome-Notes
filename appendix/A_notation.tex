@@ -5,21 +5,41 @@
 
 \begin{table}[H]
   \centering
-  \begin{tabular}{ll}
+  \footnotesize
+  \begin{tabular}{@{}ll@{}}
     \toprule
     Symbol & Meaning \\
     \midrule
-    $\G,\ \Gtheta$            & true / learned operator \\
-    $\A,\ \U$                 & input / output function spaces \\
-    $\Kop$                    & kernel integral operator \\
+    \multicolumn{2}{@{}l}{\emph{Operator learning}} \\
+    $f,\ g$                   & input and output functions \\
+    $\U,\ \V$                 & input and output function spaces \\
+    $D$                       & spatial domain; $N$ number of grid points \\
+    $\kappa(r,r',\theta)$     & kernel of an integral operator \\
     $\F,\ \Finv$              & Fourier transform and inverse \\
+    $R_\phi(k)$               & learned Fourier coefficients of the kernel (FNO) \\
     $\kmax$                   & number of retained Fourier modes \\
     $\dv$                     & channel width \\
-    $\h^t,\ \cond,\ \msg^t$   & hidden state, conditioning, message \\
-    $\Agate,\ \Bgate$         & receiver / source gates \\
-    $\Vval,\ \kernel$         & value map, spatial kernel \\
-    $\Niter,\ \Delta t$       & number of iterations, step size \\
-    $\xHI$                    & neutral hydrogen fraction \\
+    $P,\ Q,\ W,\ \sigma$      & lifting, projection, pointwise linear path, nonlinearity \\
+    \midrule
+    \multicolumn{2}{@{}l}{\emph{Rhizome operator}} \\
+    $\h^t,\ \cond,\ \msg^t$   & hidden state at update $t$, conditioning, message \\
+    $\Agate,\ \Bgate$         & receiver and source gates, values in $(0,2)$ \\
+    $\Vval$                   & value map \\
+    $\kernel,\ R(k)$          & base spatial kernel and its Fourier coefficients \\
+    $\kappa^{\mathrm{eff}}_t$ & effective, state-dependent kernel at update $t$ \\
+    $\Niter,\ \Delta t$       & number of updates (6), step size (0.5) \\
+    \midrule
+    \multicolumn{2}{@{}l}{\emph{21\,cm physics and evaluation}} \\
+    $\xHI$                    & neutral hydrogen fraction; $\bar x_{\mathrm{HI}}$ its global mean \\
+    $T_b$                     & 21\,cm brightness temperature (mK) \\
+    $\delta,\ z,\ \vartheta$  & density contrast, redshift, simulation parameters \\
+    $u$                       & spin variable, $1-e^{u}$ the spin-temperature factor \\
+    $T_0(z),\ F_v$            & $T_b$ amplitude and velocity-gradient factor \\
+    $\tau_e$                  & CMB optical depth to reionization \\
+    $r(k)$                    & cross-correlation coefficient of prediction and truth \\
+    $b_1,\ P_\varepsilon$     & linear bias and stochastic power of the EFT expansion \\
+    $W_1$                     & Wasserstein-1 distance \\
+    LOS                       & line of sight \\
     \bottomrule
   \end{tabular}
 \end{table}

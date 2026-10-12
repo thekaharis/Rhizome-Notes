@@ -2,7 +2,7 @@
 % Build:  cd Figures/src && pdflatex fno_architecture.tex && mv fno_architecture.pdf ..
 \documentclass[tikz,border=4pt]{standalone}
 \usepackage[T1]{fontenc}
-\usepackage{lmodern}
+\IfFileExists{fourier.sty}{\usepackage{fourier}}{\usepackage{lmodern}}
 \usepackage{amsmath,amssymb,bm}
 \usepackage[dvipsnames]{xcolor}
 \usetikzlibrary{arrows.meta,positioning,calc,fit,backgrounds}

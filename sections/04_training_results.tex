@@ -3,102 +3,467 @@
 \label{sec:results}
 % =====================================================================
 
+This section reports how the rhizome was trained and how it compares with the best models of the existing \texttt{fno-21cm} pipeline on the task of predicting the neutral-fraction field $\xHI$, and later also the brightness temperature $T_b$, from the matter density of \cmfast{} lightcones. The experiments followed the order of \cref{tab:rhizome-variants}: 2-D slices, native 3-D windows, multi-field 3-D, and finally slice-wise reconstruction of full cones. \Cref{fig:metric-ratios} summarizes the outcome.
+
+\begin{figure}[!htbp]
+  \centering
+  \figplaceholder[\linewidth]{metric_ratios.pdf}{Headline metrics relative to fno.}
+  \caption{Headline results on 199 held-out multi-field test cones. Each bar is the error of a rhizome model divided by the error of the best \texttt{fno-21cm} multi-field model (\texttt{tbs+histtb}); values below the dashed line are better than the baseline. Front width is measured as the excess over the true front width of 2.77\,Mpc. The slice-wise model wins every metric except the small-scale $T_b$ power before reionization, which a power term in the loss repairs (\cref{sec:results-absorption}). Numbers in \cref{tab:main-results}.}
+  \label{fig:metric-ratios}
+\end{figure}
+
 % ---------------------------------------------------------------------
 \subsection{Datasets}
 \label{sec:datasets}
 
-\TODO{Darcy-flow benchmark; synthetic lightcones (toy pilot);
-\cmfast{} ionisation fields \citep{mesinger2011cmfast}. Resolutions,
-splits, conditioning variables.}
+All data come from one suite of 6,600 \cmfast{} \citep{mesinger2011cmfast} simulations (version 4.1.1), each with eleven sampled simulation parameters. Every simulation provides a 3-D lightcone of $140\times140$ transverse cells over a 200\,Mpc box (1.43\,Mpc per cell). The native line-of-sight length depends on cosmology and is between 2,074 and 2,919 cells at the same spacing. The lightcones contain the density, the neutral fraction, the brightness temperature and the LOS velocity, among other fields. Two properties of the data matter for the models:
+\begin{itemize}
+  \item Each lightcone repeats one periodic 200\,Mpc box along the LOS, so any 140 consecutive LOS cells contain a full, cyclically shifted copy of the box.
+  \item Ionized cells have $\xHI$ exactly zero; partially ionized values appear mostly where the lightcone interpolates between two simulation snapshots.
+\end{itemize}
+33 simulations (0.5\%) contain non-finite $T_b$ values and are excluded from every multi-field split. \Cref{tab:datasets} lists the splits used.
 
-\begin{table}[H]
+\begin{table*}[!tp]
   \centering
-  \caption{Datasets used in this report.}
+  \caption{Training, validation and test splits. All test sets are held out by simulation (cone), never by slice.}
   \label{tab:datasets}
-  \begin{tabular}{llll}
+  \small
+  \begin{tabular}{@{}p{2.9cm}p{4.3cm}p{2.6cm}p{4.2cm}@{}}
     \toprule
-    Dataset & Grid & Train / Val / Test & Target \\
+    Split & Used for & Train / val / test cones & Samples \\
     \midrule
-    Darcy flow           & \TODO{} & \TODO{} & \TODO{} \\
-    Synthetic lightcones & \TODO{} & \TODO{} & $\xHI$ \\
-    \cmfast{}            & \TODO{} & \TODO{} & $\xHI$ \\
+    2-D slice cache & 2-D sweep and first 2-D model & 5,280 train (own split) & 16 window + 2 background slices per cone \\
+    $\xHI$ (fno split) & 3-D rhizome; fair slice-wise model & 1,600 / 200 / 200 & 3-D windows; or 48 + 6 slices per cone \\
+    Multi-field & 3-D multi-field; slice-wise multi-field & 1,594 / 199 / 199 & as above, cleaned $T_b$ \\
+    Multi-field, all cones & best slice-wise multi-field model & 6,169 / 199 / 199 & 16 + 2 slices per cone (98.5\,k) \\
     \bottomrule
   \end{tabular}
-\end{table}
+\end{table*}
+
+The $\xHI$ and multi-field splits are those of the \texttt{fno-21cm} pipeline. All comparisons with \texttt{fno} models below use identical test cones and the same evaluation code.
 
 % ---------------------------------------------------------------------
 \subsection{Training protocol}
 \label{sec:training}
 
-\TODO{Loss, optimiser, LR schedule with validation-driven reductions,
-predefined plateau stopping rule, checkpointing and seeds.}
+\paragraph{Losses.} $\xHI$ is trained with binary cross-entropy (BCE) on the logit. In the multi-field models, $T_b$ is added as a mean-squared error on the normalized field, through the structured head of \cref{eq:structured-head}. The choice of BCE turned out to matter beyond the operator (\cref{sec:results-3d-mf}). The \texttt{fno} baselines train $\xHI$ with a mean-squared error through a sigmoid, whose gradient vanishes when the prediction saturates.
+
+\paragraph{Optimization and stopping.} The learning rate is $2\times10^{-3}$ throughout; the 3-D models use warmup and cosine decay. The 2-D models are stopped by a predefined plateau rule on the validation loss, and the checkpoint with the best validation score is kept. The 3-D models are trained for 20 epochs of 6,400 windows and then continued with a short \emph{warm restart} (10 epochs at $5\times10^{-4}$ with cosine decay), which improved test RMSE by 3--6\%, against about 1\% for a continuation at constant small learning rate. The 2-D models use the dihedral symmetries of the square slice as data augmentation.
+
+\paragraph{Hyperparameters.} \Cref{tab:hyperparameters} lists the main settings. Every model is a single training run with one seed.
+
+\begin{table*}[!tp]
+  \centering
+  \caption{Main hyperparameters.}
+  \label{tab:hyperparameters}
+  \small
+  \begin{tabular}{@{}p{3.6cm}p{5.0cm}p{5.4cm}@{}}
+    \toprule
+    & 2-D slice / slice-wise models & 3-D window model \\
+    \midrule
+    width $\dv$ & 64 (128 in early runs) & 48 \\
+    Fourier modes $\kmax$ & 24 & (36, 36, 24), rank-48 factorized \\
+    updates $\Niter$ / step $\Delta t$ & 6 / 0.5 & 6 / 0.5 \\
+    batch / sample & 32 slices & native window, $140\times140\times256$ + $2\times32$ halo \\
+    learning rate & $2\times10^{-3}$, plateau-stopped & $2\times10^{-3}$ (warmup + cosine), 20 epochs + warm restart \\
+    precision & float32 & bfloat16 autocast, float32 FFT \\
+    parameters & grow as $\dv^2$: 1.1\,M (w32) to 18.3\,M (w128) & 5.8\,M \\
+    training time & 2.8--3.5\,h (A100) & $\sim$12\,h + 6\,h restart (H200) \\
+    \bottomrule
+  \end{tabular}
+\end{table*}
 
 % ---------------------------------------------------------------------
 \subsection{Evaluation metrics}
 \label{sec:metrics}
 
-\TODO{Relative $L^2$ error; power spectrum ratio; cross-correlation
-$r(k)$; bubble-size distribution; global neutral fraction.}
+Per-voxel RMSE is reported, but it is a weak guide to physical quality: a model can lower its RMSE by blurring fronts. The evaluation therefore uses the physical suite of the \texttt{fno-21cm} pipeline, computed on full test cones. Most metrics are evaluated in the \emph{active} stage of reionization, slices with mean neutral fraction between 0.05 and 0.95, and some also \emph{before reionization}, $\bar x_{\mathrm{HI}}\ge0.98$, where $T_b$ is in absorption. \Cref{tab:metrics} lists them.
 
+\begin{table*}[!tp]
+  \centering
+  \caption{Evaluation metrics. All are computed per test cone and summarized by the median over cones.}
+  \label{tab:metrics}
+  \small
+  \begin{tabular}{@{}p{4.3cm}p{9.6cm}@{}}
+    \toprule
+    Metric & What it measures \\
+    \midrule
+    $|\Delta\tau_e|/\sigma_{\mathrm{Planck}}$ & error in the CMB optical depth implied by the predicted global history, in units of the Planck uncertainty \\
+    $|\Delta z|$ at $\bar x=0.25/0.5/0.75$; duration & timing of reionization: error in the redshift at which the global neutral fraction crosses each value, and in the duration \\
+    $\xHI$ PDF $W_1$ & Wasserstein-1 distance between predicted and true one-point distributions of $\xHI$ \\
+    partially ionized fraction & fraction of cells with intermediate $\xHI$ (truth $\approx0.09$); measures hedging \\
+    $b_1$ pull; $P_\varepsilon$ ratio & EFT diagnostics: error in the fitted linear bias in units of its uncertainty; ratio of stochastic power to the truth (ideal 1) \\
+    bubble-size $W_1$ & Wasserstein-1 distance (Mpc) between mean-free-path bubble-size distributions \\
+    power error (large / mid / small $k$) & $|P_{\mathrm{pred}}/P_{\mathrm{true}}-1|$ of the transverse $\xHI$ power spectrum in three $k$ ranges; small means $k>1\,\mathrm{Mpc}^{-1}$ \\
+    $1-r$, small $k$ & small-scale incoherence: one minus the cross-correlation \cref{eq:cross-correlation}, averaged over $k>1\,\mathrm{Mpc}^{-1}$ \\
+    edge $L^2$ / $H^1$, $\pm2$\,Mpc & error (and error in gradients) in a $\pm2$\,Mpc band around true ionization fronts \\
+    front width & width of the predicted ionization fronts (Mpc), compared with the true width \\
+    $T_b$ PDF $W_1$; $T_b$ power deviation & distance between $T_b$ distributions (mK); power difference in units of the single-slice sample variance ($\sigma$) \\
+    \bottomrule
+  \end{tabular}
+\end{table*}
+
+The cross-correlation coefficient between prediction and truth,
 \begin{equation}
   \label{eq:cross-correlation}
   r(k) = \frac{P_{\mathrm{pred}\times\mathrm{true}}(k)}
-              {\sqrt{P_{\mathrm{pred}}(k)\,P_{\mathrm{true}}(k)}}
+              {\sqrt{P_{\mathrm{pred}}(k)\,P_{\mathrm{true}}(k)}},
 \end{equation}
+deserves special attention. The power ratio measures whether a model produces the right \emph{amount} of structure at each scale; $r(k)$ measures whether that structure is in the right \emph{place}. In the earlier 3-D operator study of the \texttt{fno-21cm} pipeline, small-scale coherence predicted the bias in the bubble-size distribution across architectures (Spearman $\rho=0.88$), while small-scale power amplitude did not. Getting fronts in the right place matters more for bubble statistics than getting the right amount of small-scale detail.
 
 % ---------------------------------------------------------------------
 \subsection{Baselines}
 \label{sec:baselines}
 
-\TODO{FNO, U-FNO, U-Net, recurrent FNO; parameter-matched comparisons.}
+All baselines come from the \texttt{fno-21cm} pipeline and were trained there on the same splits:
+\begin{itemize}
+  \item \textbf{\texttt{cnn\_whno\_es}} (3.5\,M parameters): the \texttt{fno} 3-D $\xHI$ model trained on native LOS windows. It has the U-FNO layout, a convolutional local path next to a learned global path, at a size comparable to the rhizome. Trained for 30 epochs (44.7\,h on an A100).
+  \item \textbf{\texttt{es+histtb}} and \textbf{\texttt{tbs+histtb}}: the corresponding multi-field models, which receive density, velocity and both emulated global histories. \texttt{tbs+histtb} additionally uses the structured $T_b$ head and is the strongest \texttt{fno} model. It corresponds to rhizome variant C below and is labelled ``UFNO'' in the head-to-head figures.
+  \item \textbf{2-D \texttt{fno} models} (LWF, WHNO, LocalFNO, U-FNO), which predict one slice from that slice alone.
+\end{itemize}
+The 203\,M-parameter U-FNO of \citet{wen2022ufno} from the operator study (\cref{sec:ufno}) is not used as a baseline here, because its capacity is not comparable.
 
 % ---------------------------------------------------------------------
-\subsection{Main results}
-\label{sec:main-results}
+\subsection{2-D slices: line-of-sight context dominates}
+\label{sec:results-2d}
 
-\begin{table}[H]
+A sweep around a centre configuration (width 64, 24 modes, six updates) showed that the largest single factor is not a hyperparameter of the operator but the LOS context in the input (\cref{fig:los-context}). With only the target slice, the rhizome reaches a mixed-slice RMSE of 0.174. Adding the six neighbouring slices brings it to 0.138, and adding the band means out to $\pm32$ cells to 0.112, a 36\% reduction in total. By comparison, the other settings matter little: width 128 is 3\% better than width 64 at four times the parameters, 12 or 48 modes are worse than 24, and three or ten updates are slightly worse than six. At equal compute, more training slices beat more width.
+
+\begin{figure}[!htbp]
   \centering
-  \caption{Held-out performance. \TODO{fill in}}
-  \label{tab:main-results}
-  \begin{tabular}{lcccc}
+  \figplaceholder[\linewidth]{los_context.pdf}{LOS context chart.}
+  \caption{Effect of line-of-sight context on the 2-D rhizome (sweep, 15\,k steps, one seed). Mixed slices have mean $\xHI$ between 0.05 and 0.95.}
+  \label{fig:los-context}
+\end{figure}
+
+\Cref{tab:results-2d} compares the 2-D rhizome with the 2-D \texttt{fno} models on the same 7,036 validation slices. The rhizome halves the error of the next best model, and its ionization fronts are five times sharper. Most of this gap, however, is LOS information: the \texttt{fno} models see a single slice, and the single-slice rhizome (0.174) performs at their level. The 2-D comparison therefore shows what the input buys rather than what the operator buys. The fully trained 2-D model (width 128, plateau-stopped at 68\,k steps) reached a test mixed-slice RMSE of 0.099 and an ionized-region IoU of 0.914.
+
+\begin{table}[!htbp]
+  \centering
+  \caption{2-D rhizome against 2-D \texttt{fno} models on 7,036 validation slices (rhizome: sweep run at 15\,k steps). Only the rhizome sees LOS context. RMSE: slice RMSE; IoU: ionized-region intersection over union; front: front width (truth 3.0\,Mpc).}
+  \label{tab:results-2d}
+  \small
+  \begin{tabular}{@{}lrrr@{}}
     \toprule
-    Model & Params & Rel.\ $L^2$ $\downarrow$ & $r(k_\ast)$ $\uparrow$ & BSD bias $\downarrow$ \\
+    Model & RMSE & IoU & Front (Mpc) \\
     \midrule
-    FNO       & \TODO{} & \TODO{} & \TODO{} & \TODO{} \\
-    U-FNO     & \TODO{} & \TODO{} & \TODO{} & \TODO{} \\
-    U-Net     & \TODO{} & \TODO{} & \TODO{} & \TODO{} \\
-    Rhizome   & \TODO{} & \TODO{} & \TODO{} & \TODO{} \\
+    \textbf{Rhizome} (LOS bands) & \textbf{0.109} & \textbf{0.873} & \textbf{6.1} \\
+    \texttt{fno} LWF & 0.178 & 0.755 & 32.6 \\
+    \texttt{fno} WHNO & 0.181 & 0.755 & 31.0 \\
+    \texttt{fno} LocalFNO & 0.184 & 0.742 & -- \\
+    \texttt{fno} U-FNO & 0.195 & 0.722 & -- \\
     \bottomrule
   \end{tabular}
 \end{table}
 
-\begin{figure}[H]
+% ---------------------------------------------------------------------
+\subsection{3-D windows: \texorpdfstring{$\xHI$}{xHI}}
+\label{sec:results-3d}
+
+The 3-D rhizome sees the same information as the 3-D \texttt{fno} model: native LOS windows of the density field. Here the comparison isolates the operator. On the 200 test cones (\cref{tab:results-3d}), the rhizome at width 48 reaches an RMSE of 0.0594 after the warm restart, against 0.0684 for \texttt{cnn\_whno\_es}, with 5.8\,M against 3.5\,M parameters. Narrower was better (width 64 gave 0.0628), and a learning rate of $3\times10^{-4}$ was 13\% worse than $2\times10^{-3}$.
+
+\begin{table*}[!tp]
   \centering
-  \begin{subfigure}{0.48\linewidth}
-    \centering
-    \figplaceholder[\linewidth]{results_fields.pdf}{Truth vs.\ prediction slices}
-    \caption{Field comparison}
-  \end{subfigure}\hfill
-  \begin{subfigure}{0.48\linewidth}
-    \centering
-    \figplaceholder[\linewidth]{results_rk.pdf}{$r(k)$ per model}
-    \caption{Cross-correlation}
-  \end{subfigure}
-  \caption{Qualitative and spectral comparison. \TODO{}}
-  \label{fig:main-results}
+  \caption{3-D $\xHI$ on 200 test cones. \emph{Left:} test RMSE. \emph{Right:} physical suite (medians over cones), rhizome w48 after the warm restart.}
+  \label{tab:results-3d}
+  \small
+  \begin{tabular}[t]{lrr}
+    \toprule
+    Model & Params & RMSE \\
+    \midrule
+    rhizome w48, 20 ep. & 5.8\,M & 0.0619 \\
+    \quad + warm restart & 5.8\,M & \textbf{0.0594} \\
+    rhizome w64, + restart & -- & 0.0628 \\
+    \texttt{cnn\_whno\_es}, 30 ep. & 3.5\,M & 0.0684 \\
+    \bottomrule
+  \end{tabular}
+  \hspace{1.2em}
+  \begin{tabular}[t]{lrr}
+    \toprule
+    Metric & Rhizome & \texttt{fno} \\
+    \midrule
+    $|\Delta\tau_e|/\sigma_{\mathrm{Planck}}$ & \textbf{0.019} & 0.058 \\
+    $|\Delta z(\bar x=0.5)|$ & \textbf{0.028} & 0.098 \\
+    $b_1$ pull & \textbf{1.58} & 3.41 \\
+    $P_\varepsilon$ ratio (ideal 1) & \textbf{0.89} & 0.77 \\
+    bubble-size $W_1$ (Mpc) & \textbf{0.81} & 1.39 \\
+    small-scale power error & \textbf{0.222} & 0.336 \\
+    edge $H^1$, $\pm2$\,Mpc & \textbf{0.137} & 0.145 \\
+    front width (Mpc) & \textbf{5.9} & 7.5 \\
+    \bottomrule
+  \end{tabular}
+\end{table*}
+
+The margin is much larger on the physical metrics than on RMSE. The rhizome is three times more accurate in $\tau_e$ and in the reionization midpoint, halves the bias error, and comes 40\% closer in bubble sizes. Its small-scale power and coherence also hold up better at every stage of reionization.
+
+% ---------------------------------------------------------------------
+\subsection{3-D multi-field: inputs, heads and losses}
+\label{sec:results-3d-mf}
+
+The multi-field models predict $\xHI$ and $T_b$ from density and LOS velocity. Four 3-D rhizome configurations were trained to separate the contributions of inputs and output head (\cref{tab:results-3d-mf}).
+
+\begin{table}[!htbp]
+  \centering
+  \caption{3-D multi-field ablation, test RMSE on 199 cones ($\xHI$ / $T_b$ in mK). History channels are the band means of the emulated global $\xHI(z)$ and $T_b(z)$.}
+  \label{tab:results-3d-mf}
+  \footnotesize
+  \setlength{\tabcolsep}{3pt}
+  \begin{tabular}{@{}lp{2.6cm}rr@{}}
+    \toprule
+    Run & Inputs / head & 20 epochs & + restart \\
+    \midrule
+    A0 & density $\to\xHI$ only & 0.0602 & 0.0567 \\
+    A & + velocity, + $T_b$ (plain head) & 0.0648 / 9.49 & 0.0622 / 8.71 \\
+    B & A + history channels & 0.0509 / 6.26 & 0.0494 / 6.07 \\
+    \textbf{C} & B + structured $T_b$ head & 0.0507 / 5.97 & \textbf{0.0495 / 5.79} \\
+    \midrule
+    \texttt{fno} \texttt{es+histtb} & = B & 0.0577 / 6.63 & \\
+    \texttt{fno} \texttt{tbs+histtb} & = C & 0.0560 / 6.54 & \\
+    \bottomrule
+  \end{tabular}
+\end{table}
+
+\begin{itemize}
+  \item \textbf{History channels carry the gain.} Going from A to B reduces the $\xHI$ error by 21\% and the $T_b$ error by 34\%.
+  \item \textbf{Velocity and a $T_b$ target alone do not help $\xHI$}; A is even slightly worse than A0 (one seed each).
+  \item \textbf{The structured head mainly helps $T_b$}: without it, $T_b$ power is about 10\% low at every stage. It also improves the reionization timing by 15--30\%.
+  \item \textbf{The density-only rhizome A0 already beats \texttt{fno}~\texttt{es+histtb}} (0.0567 vs 0.0577), although the latter also receives velocity and both histories.
+\end{itemize}
+On the physical suite, model C beats \texttt{tbs+histtb} by a factor of 5 in $\tau_e$ (0.014 vs 0.076\,$\sigma$), and is closer in $b_1$ (pull 1.52 vs 2.28), $P_\varepsilon$ (0.935 vs 0.793), bubble sizes ($W_1$ 0.71 vs 1.21\,Mpc) and front width (4.53 vs 6.17\,Mpc; truth 2.77). Before reionization, \texttt{fno} adds spurious small-scale $T_b$ structure ($+12.8\sigma$ against $+3.9\sigma$).
+
+\paragraph{Part of the gap is the loss, not the operator.} Both model families receive the same emulated global history, yet the global $\bar x_{\mathrm{HI}}(z)$ of the \texttt{fno} models sits 0.002--0.003 too low from $z\approx8$ to 25. In truly neutral cells at $z>15$ the mean error is $-0.0020$ and $-0.0030$ for the two \texttt{fno} runs against $-0.00006$ for the rhizome. The cause is the \texttt{fno} loss: a mean-squared error through a sigmoid has a vanishing gradient near saturation, so fully neutral cells are left at about 0.997, while the gradient of BCE in logit space does not vanish. This uniform offset integrates into a $\tau_e$ bias. A fair comparison of $\tau_e$ and the global history therefore needs the \texttt{fno} models retrained with BCE. The timing, bias, stochasticity, bubble-size and front metrics, however, are not explained by this offset.
+
+% ---------------------------------------------------------------------
+\subsection{Slice-wise reconstruction beats native 3-D}
+\label{sec:results-slicewise}
+
+The slice-wise variant (\cref{fig:slicewise}) applies the 2-D model to every slice of a cone. For a fair comparison it was retrained on a new slice cache built from the same 1,600 training cones as the 3-D models, with otherwise unchanged settings. \Cref{tab:results-slicewise} compares it with the 3-D rhizome and with \texttt{fno} on all 200 test cones.
+
+\begin{table*}[!tp]
+  \centering
+  \caption{Slice-wise 2-D reconstruction against the 3-D models, $\xHI$, 200 test cones, all trained on the same 1,600 cones.}
+  \label{tab:results-slicewise}
+  \small
+  \begin{tabular}{@{}lrrrr@{}}
+    \toprule
+    Metric & 2-D w128 & \textbf{2-D w64} & 3-D rhizome w48 & \texttt{cnn\_whno\_es} \\
+    \midrule
+    $|\Delta\tau_e|/\sigma_{\mathrm{Planck}}$ & \textbf{0.011} & \textbf{0.011} & 0.019 & 0.058 \\
+    $|\Delta z(\bar x=0.5)|$ & \textbf{0.011} & 0.014 & 0.028 & 0.098 \\
+    $\xHI$ PDF $W_1$, active & \textbf{0.011} & 0.013 & 0.021 & 0.030 \\
+    $b_1$ pull & 1.01 & \textbf{0.85} & 1.58 & 3.41 \\
+    $P_\varepsilon$ ratio (ideal 1) & \textbf{0.95} & 0.94 & 0.89 & 0.77 \\
+    bubble-size $W_1$ (Mpc) & 0.59 & \textbf{0.56} & 0.81 & 1.39 \\
+    power error, mid $k$ & \textbf{0.062} & 0.073 & 0.174 & 0.172 \\
+    $1-r$, small $k$ & \textbf{0.119} & 0.120 & 0.199 & 0.181 \\
+    edge $H^1$, $\pm2$\,Mpc & \textbf{0.109} & 0.110 & 0.138 & 0.145 \\
+    front width (Mpc; truth 2.65) & \textbf{4.03} & 4.10 & 5.91 & 7.54 \\
+    \bottomrule
+  \end{tabular}
+\end{table*}
+
+The slice-wise model wins on nearly every physical metric, trains about seven times faster than the 3-D rhizome, and has no jitter between slices: the roughness from slice to slice matches the truth to 2--3\%, while both 3-D models are slightly over-smoothed along the LOS. Its advantage comes from front \emph{placement}: small-scale incoherence drops from 0.20 to 0.12, the mid-scale power error by 60\%, and the edge error by 21\% (significant in a paired bootstrap over 175 cones). Width barely matters, so width 64 (2.8\,h of training against 5.0\,h) is the choice. Per cone, the 2-D model wins 11 of 13 inspected cones. It loses on the earliest reionizer, cone 27 ($z_{\mathrm{mid}}\approx15.9$), where the longer context of the 3-D model helps slightly.
+
+The error maps in \cref{fig:slicewise-errors} show the qualitative difference. The slice-wise errors are thin rims along bubble walls, whereas the 3-D models, \texttt{fno} strongly and the 3-D rhizome weakly, miss whole ionized regions, and \texttt{fno} leaves a faint ionized haze over neutral gas.
+
+\begin{figure}[!htbp]
+  \centering
+  \figplaceholder[0.9\linewidth]{rhizome/slicewise_xhi_error_maps.png}{Slice-wise error maps.}
+  \caption{Signed $\xHI$ error at $\bar x_{\mathrm{HI}}\approx0.4$ on eight test cones (red: predicted too neutral, blue: too ionized). Columns: truth, slice-wise 2-D rhizome (w64), 3-D rhizome (w48, warm restart), \texttt{fno} \texttt{cnn\_whno\_es}; per-panel RMSE in the corner. The bottom row is cone 27, the earliest reionizer, where all models predict ionized gas as too neutral.}
+  \label{fig:slicewise-errors}
+\end{figure}
+
+This result says something about the problem as well as about the model. What the 3-D models need from the line of sight is about $\pm32$ cells ($\approx\pm46$\,Mpc) of context, not a joint prediction over 256 cells. A 2-D operator with that context in its input is both more accurate and cheaper than a 3-D operator that has to learn LOS structure across a whole window.
+
+% ---------------------------------------------------------------------
+\subsection{Best model: multi-field slice-wise rhizome}
+\label{sec:main-results}
+
+The final model combines the slice-wise approach with the multi-field inputs and the structured head of model C: 13 LOS bands each of density and velocity, global-history band means as scalars, and $\xHI$ and $T_b$ as outputs (\cref{sec:rhizome-variants}). It was trained on all 6,169 usable training cones (3.5\,h on an A100) and evaluated on the 199 multi-field test cones. \Cref{tab:main-results} compares it with 3-D rhizome C and with the best \texttt{fno} model.
+
+\begin{table*}[!tp]
+  \centering
+  \caption{Main results, 199 multi-field test cones (medians). ``Slice-wise'' is the multi-field slice-wise 2-D rhizome trained on all cones; ``+ $T_b$ power'' adds the power term of \cref{sec:results-absorption}. Best value per row in bold.}
+  \label{tab:main-results}
+  \small
+  \setlength{\tabcolsep}{4pt}
+  \begin{tabular}{@{}lrrrr@{}}
+    \toprule
+    Metric & Slice-wise & + $T_b$ power & 3-D rhizome C & \texttt{fno} \texttt{tbs+histtb} \\
+    \midrule
+    $|\Delta\tau_e|/\sigma_{\mathrm{Planck}}$ & 0.010 & \textbf{0.008} & 0.012 & 0.076 \\
+    $|\Delta z(\bar x=0.5)|$ / duration & \textbf{0.010 / 0.018} & \textbf{0.010 / 0.018} & 0.011 / \textbf{0.018} & 0.017 / 0.044 \\
+    $\xHI$ PDF $W_1$, active & \textbf{0.0095} & 0.0098 & 0.0156 & 0.0271 \\
+    $b_1$ pull & 0.99 & \textbf{0.93} & 1.35 & 2.28 \\
+    $P_\varepsilon$ ratio (ideal 1) & \textbf{0.954} & -- & 0.945 & 0.793 \\
+    bubble-size $W_1$, active (Mpc) & 0.56 & \textbf{0.48} & 0.69 & 1.21 \\
+    $\xHI$ power error, small $k$ & 0.168 & \textbf{0.163} & 0.223 & 0.311 \\
+    $1-r$, small $k$ & \textbf{0.096} & 0.102 & 0.151 & 0.174 \\
+    edge $H^1$, $\pm2$\,Mpc & \textbf{0.106} & 0.112 & 0.131 & 0.147 \\
+    front width (Mpc; truth 2.77) & \textbf{3.89} & 3.94 & 4.38 & 6.17 \\
+    $T_b$ PDF $W_1$, active (mK) & 0.79 & \textbf{0.77} & 1.06 & 1.19 \\
+    pre-reion.\ $T_b$ power dev., $k=0.46$ & $+24.8\sigma$ & $\bm{+1.5\sigma}$ & $+4.1\sigma$ & $+12.8\sigma$ \\
+    \bottomrule
+  \end{tabular}
+\end{table*}
+
+Against \texttt{fno}, the slice-wise model reduces the $\xHI$ value-distribution error by 65\%, the $b_1$ pull by 57\%, the bubble-size error by 54\% and small-scale incoherence by 45\%, and its fronts are 3.9\,Mpc wide against 6.2\,Mpc. During reionization, its $T_b$ distribution is 34\% closer to the truth. On the eight test cones inspected individually, it beats \texttt{fno} on every cone, by 12--28\% in full-cone RMSE. It also beats the 3-D rhizome C on every $\xHI$ morphology metric (value distribution $-39\%$, $b_1$ pull $-27\%$, bubble sizes $-19\%$, incoherence $-36\%$, edges $-19\%$), while $\tau_e$ and timing tie: with history channels, both rhizome models are already five to seven times better than \texttt{fno} there. Training on all cones instead of the 1,594-cone split improved per-cone RMSE by 3.6\% ($\xHI$) and 5.5\% ($T_b$) in the median, on 86\% and 75\% of cones respectively.
+
+\begin{figure*}[!tp]
+  \centering
+  \figplaceholder[0.56\linewidth]{rhizome/h2h_cone24.png}{Cone 24 head-to-head.}
+  \caption{Test cone 24. \emph{Top left:} $\xHI$ lightcone strips for truth, rhizome (slice-wise multi-field) and the \texttt{fno} baseline (labelled UFNO). \emph{Top right:} global history and signed error strips. \emph{Bottom:} transverse slices at mean neutral fraction 0.17, 0.40, 0.61 and 0.80, with per-slice RMSE. Full-cone RMSE 0.045 (rhizome) against 0.057 (\texttt{fno}). The \texttt{fno} fronts are blurred, and it leaves a faint haze inside ionized regions.}
+  \label{fig:cone24}
+\end{figure*}
+
+\Cref{fig:h2h-ps} shows the scale dependence. Both models lose small-scale power late in reionization, \texttt{fno} more so. The rhizome keeps $r>0.9$ to higher $k$ at every stage, so the structure it does produce sits in the right place. \Cref{fig:ps-plane} puts this in the context of all models from the earlier 3-D operator study. In the plane of small-scale coherence against small-scale power error, the multi-field slice-wise rhizome sits apart from every \texttt{fno} model: $r(k>1)=0.90$ against 0.82--0.83, power error 0.17 against 0.31--0.34.
+
+\begin{figure*}[!tp]
+  \centering
+  \figplaceholder[\linewidth]{rhizome/h2h_ps_stage_curves.png}{Power and coherence by stage.}
+  \caption{$\xHI$ power ratio (left) and cross-correlation $r(k_\perp)$ (right) by reionization stage, multi-field slice-wise rhizome (top) and \texttt{fno} \texttt{tbs+histtb} (bottom), 199 test cones.}
+  \label{fig:h2h-ps}
+\end{figure*}
+
+\begin{figure*}[!tp]
+  \centering
+  \figplaceholder[\linewidth]{rhizome/ps_plane_coherence_vs_power_best.png}{Coherence vs power plane.}
+  \caption{Small-scale coherence $r(k>1\,\mathrm{Mpc}^{-1})$ against small-scale power error for the 3-D $\xHI$ models of the earlier operator study (open circles), the \texttt{fno} LOS-window models (filled) and the multi-field slice-wise rhizome (green), active stage. Better models lie to the lower right. Models from different pipelines and splits are compared with care.}
+  \label{fig:ps-plane}
+\end{figure*}
+
+\begin{figure*}[!tp]
+  \centering
+  \figplaceholder[\linewidth]{rhizome/h2h_physical_history.png}{History and timing.}\\[4pt]
+  \figplaceholder[\linewidth]{rhizome/h2h_bubble_size_summary.png}{Bubble size summary.}\\[4pt]
+  \figplaceholder[\linewidth]{rhizome/h2h_edge_3d.png}{Edge profiles.}
+  \caption{Physical metrics, rhizome (slice-wise multi-field) against \texttt{fno} \texttt{tbs+histtb}, 199 test cones. \emph{Top:} global history error, $\tau_e$ error in Planck $\sigma$ (median 0.01 against 0.08), and predicted against true midpoint and duration. \emph{Middle:} bubble-size distributions and their $W_1$ distance to the truth by stage (active 0.56 against 1.21\,Mpc). \emph{Bottom:} error profiles across ionization fronts; front width 3.9 against 6.2\,Mpc (truth 2.77).}
+  \label{fig:h2h-physical}
+\end{figure*}
+
+\Cref{fig:h2h-errors} shows the signed error at $\bar x_{\mathrm{HI}}\approx0.4$ on eight test cones. As for the $\xHI$-only model, the rhizome's errors are thin rims on bubble walls, while \texttt{fno} misses whole regions and its rims are wider.
+
+\begin{figure}[!htbp]
+  \centering
+  \figplaceholder[0.78\linewidth]{rhizome/h2h_error_maps_xhi04.png}{Error maps.}
+  \caption{Signed $\xHI$ error maps at $\bar x_{\mathrm{HI}}\approx0.4$ on eight test cones (red: predicted too neutral), rhizome against \texttt{fno} \texttt{tbs+histtb}.}
+  \label{fig:h2h-errors}
+\end{figure}
+
+\paragraph{Shared failure.} Some test cones contain large, flat plateaus of intermediate neutral fraction ($\xHI\approx0.3$--0.6) in the truth. No model reproduces them, and all overpredict the partially ionized fraction (0.13--0.18 against 0.09).
+
+% ---------------------------------------------------------------------
+\subsection{Brightness temperature before reionization}
+\label{sec:results-absorption}
+
+The slice-wise model has one clear weakness. Before reionization, when $T_b$ is in absorption, it produces too much small-scale $T_b$ power: $+24.8\sigma$ at $k=0.46\,\mathrm{Mpc}^{-1}$, against $+4.1\sigma$ for the 3-D rhizome and $+12.8\sigma$ for \texttt{fno} (\cref{tab:main-results}). The excess is concentrated in quiet slices whose true small-scale power is tiny; the power summed over the cone is in fact slightly low (ratio 0.97). The working explanation is that the spin variable $u$ is predicted slice by slice, and nothing in a per-pixel loss constrains its small-scale scatter within a slice, whereas the 3-D model predicts it jointly along the LOS.
+
+Three fixes that address data, post-processing and context did not work; a fourth, in the loss, did (\cref{tab:absorption-fixes}).
+
+\begin{table}[!htbp]
+  \centering
+  \caption{Attempts to remove the absorption-era $T_b$ power excess of the slice-wise model (power deviation at $k=0.46\,\mathrm{Mpc}^{-1}$, plain model: $+24.8\sigma$).}
+  \label{tab:absorption-fixes}
+  \footnotesize
+  \begin{tabular}{@{}p{2.2cm}p{1.05cm}p{4.3cm}@{}}
+    \toprule
+    Attempt & Excess & Outcome \\
+    \midrule
+    3.9$\times$ more training cones & $+24.8\sigma$ & $T_b$ values improve ($W_1$ $-31\%$), excess unchanged: not a data limit \\
+    smooth $u$ along the LOS ($\sigma=4$ cells) & $+1.1\sigma$ & removes the excess only by destroying real LOS structure: $T_b$ RMSE $+40$--$110\%$, summed power $\times1.3$; rejected \\
+    LOS context $\pm128$ cells & $+36.0\sigma$ & worse; per-voxel accuracy unchanged; not adopted \\
+    \textbf{small-scale $T_b$ power loss} & $\bm{+1.5\sigma}$ & fixes the excess at every scale; costs 4--8\% per-voxel RMSE \\
+    \bottomrule
+  \end{tabular}
+\end{table}
+
+The power loss compares the transverse power spectrum of each predicted slice with the truth in eight logarithmic bins from $k=0.3\,\mathrm{Mpc}^{-1}$ to the grid Nyquist frequency,
+\begin{equation}
+  \label{eq:power-loss}
+  \mathcal{L}_{P} = \lambda\,\Big\langle \big(\log(P_{\mathrm{pred}}+\epsilon)-\log(P_{\mathrm{true}}+\epsilon)\big)^2 \Big\rangle_{\text{slices, bins}},
+\end{equation}
+with $\lambda=0.03$, applied to the mean-subtracted normalized $T_b$. It brings the absorption-era excess from $+24.8\sigma$ to $+1.5\sigma$, better than the 3-D rhizome, without overshooting the amplitude. It also improves the reionization-era statistics: $T_b$ power within 1--2\% at all scales, bubble-size $W_1$ $-14\%$ and $\tau_e$ $-20\%$ (\cref{fig:power-loss}). The price is a 4--8\% higher per-voxel RMSE, consistent over 80--90\% of the cones, and slightly worse edges. This is the familiar trade-off between perceptual realism and pixel distortion: a per-pixel loss favours slightly smoothed fields, while the power term enforces realistic small-scale structure.
+
+Applying the same term to $\xHI$ as well roughly halves the high-$k$ $\xHI$ power deficit (from 0.163 to 0.089 over active slices; in the latest stage from 0.59 to 0.15), gives the closest value distribution of all models ($W_1$ 0.0082), and keeps the absorption-era fix ($+1.3\sigma$). It costs another 2--4\% in per-voxel RMSE, and the extra small-scale power is only partly in phase with the truth (small-scale incoherence $+7\%$). The three variants are useful for different purposes: the plain model for per-voxel accuracy, the $T_b$ power loss for 21\,cm statistics, and both power terms for the most realistic small-scale structure in both fields.
+
+\begin{figure*}[!tp]
+  \centering
+  \figplaceholder[\linewidth]{rhizome/power_loss_physical_21cm.png}{Power-loss 21cm statistics.}
+  \caption{21\,cm statistics of the power-loss variants during reionization, 199 test cones: plain slice-wise model, $+\,T_b$ power loss (\texttt{pw0.03}), $+\,T_b$ and $\xHI$ power loss (\texttt{pw0.03\_px0.03}), and 3-D rhizome C. \emph{Right column:} power bias in units of single-slice sample variance for $T_b$ (top) and $\xHI$ (bottom). Both power-loss models stay near zero to $k\approx2\,\mathrm{Mpc}^{-1}$ in $T_b$; the plain model and 3-D C fall to $-10$ and $-12\sigma$.}
+  \label{fig:power-loss}
+\end{figure*}
+
+A further third of the absorption-era $T_b$ error is a constant offset per slice, of random sign from cone to cone. Its size (1.6--2.0\,mK RMS) is nearly the same for all three model families and comparable to the error of the global-history emulator that provides the $\bar T_b(z)$ input (about 2.1\,mK). It is therefore limited by the information in the input rather than by the operator, and the power loss, which acts only on fluctuations, leaves it unchanged.
+
+% ---------------------------------------------------------------------
+\subsection{Learned kernels: no spectral collapse}
+\label{sec:results-modes}
+
+Neural networks tend to learn low frequencies first, and a Fourier layer can end up using only its lowest modes. \Cref{fig:mode-weights} tests this for the rhizome by comparing the RMS weight of each Fourier mode of the trained kernel with its value at initialization. The weights grew 13--45-fold almost evenly up to the band edge: the ratio of high-quarter to low-quarter weight is 0.78--0.94 for all rhizome models, against 0.10--0.45 for a U-FNO in an earlier study. Models with 36 or 48 modes also use their extra modes, so the weaker 48-mode result of the sweep reflects the short training budget, not unused capacity. A spectral-bias correction such as a SIREN-generated kernel would therefore not help here; full-budget runs with more modes are the cheaper next step.
+
+\begin{figure*}[!tp]
+  \centering
+  \figplaceholder[0.82\linewidth]{rhizome/mode_weight_profiles.png}{Mode weight profiles.}
+  \caption{Per-mode RMS of the learned Fourier kernel relative to initialization. Radial profiles over wavenumber; they are flat to the band edge: there is no collapse onto low frequencies.}
+  \label{fig:mode-weights}
+\end{figure*}
+
+% ---------------------------------------------------------------------
+\subsection{Cost}
+\label{sec:results-cost}
+
+Per training slice, the 2-D model is about four times slower than the 3-D models, since it runs full-resolution recurrent updates in float32. It needs 15--20 times fewer training slices, however (2.2\,M against 33--49\,M), so a complete training run is four to seven times cheaper: 3.5\,h on one A100 for the best model, against about 18\,h on an H200 for the 3-D rhizome and 44.7\,h on an A100 for \texttt{cnn\_whno\_es}.
+
+At inference, a full multi-field cone takes 5.5\,s end to end on an A100 and 3.7\,s on an H200 once the LOS bands are built on the GPU and the next data window is prefetched (\cref{fig:inference-cost}). This makes the slice-wise model the fastest model end to end, 1.8--2.3 times faster than both 3-D models; at that point inference is limited by reading the data. The GPU forward pass alone (3.8\,s / 1.7\,s) matches the 3-D rhizome and is about twice as slow as \texttt{fno}. Mixed precision is not worthwhile: bfloat16 gains only 5--14\%, because the FFTs stay in float32, and it shifts $\xHI$ by up to 0.08.
+
+\begin{figure}[!htbp]
+  \centering
+  \figplaceholder[\linewidth]{inference_cost.pdf}{Inference cost chart.}
+  \caption{End-to-end inference time for one full multi-field test cone ($\xHI$ and $T_b$), including data reading.}
+  \label{fig:inference-cost}
 \end{figure}
 
 % ---------------------------------------------------------------------
 \subsection{Ablations}
 \label{sec:ablations}
 
-\TODO{Stage A: gate mechanism. Stage B: weight sharing and FNO
-reduction. Stage C: operator transfer and 21\,cm validation.
-Decision rules stated before results.}
+\Cref{tab:ablations} collects what each design and training choice was worth across the experiments above. Each line compares two otherwise identical single-seed runs.
+
+\begin{table*}[!tp]
+  \centering
+  \caption{Summary of ablations. Effects are relative changes in the stated metric; negative is better.}
+  \label{tab:ablations}
+  \small
+  \begin{tabular}{@{}p{4.6cm}p{3.6cm}p{5.6cm}@{}}
+    \toprule
+    Change & Metric & Effect \\
+    \midrule
+    LOS bands vs single slice (2-D) & mixed-slice RMSE & $-36\%$ (0.174 $\to$ 0.112) \\
+    width 64 $\to$ 128 (2-D) & mixed-slice RMSE & $-3\%$ at $4\times$ parameters \\
+    width 48 $\to$ 64 (3-D) & test RMSE & $+6\%$ (worse) \\
+    lr $2\times10^{-3}\to3\times10^{-4}$ (3-D) & test RMSE & $+13\%$ (worse) \\
+    warm restart (3-D) & test RMSE & $-3$ to $-6\%$ \\
+    history channels (3-D, A $\to$ B) & RMSE $\xHI$ / $T_b$ & $-21\%$ / $-34\%$ \\
+    structured $T_b$ head (B $\to$ C) & $T_b$ RMSE; timing & $-5\%$; $-15$ to $-30\%$ \\
+    slice-wise 2-D vs 3-D (same data) & $1-r$; edge $H^1$ & $-40\%$; $-21\%$ \\
+    all 6,169 vs 1,594 training cones & median per-cone RMSE & $-3.6\%$ ($\xHI$), $-5.5\%$ ($T_b$) \\
+    LOS context $\pm128$ vs $\pm32$ & per-voxel RMSE & no significant change; duration $-37\%$; absorption $T_b$ worse \\
+    $T_b$ power loss & pre-reion.\ $T_b$ power dev. & $+24.8\sigma\to+1.5\sigma$; RMSE $+4$ to $+8\%$ \\
+    $+\,\xHI$ power loss & small-$k$ $\xHI$ power error & $-45\%$; RMSE further $+2$ to $+4\%$ \\
+    \bottomrule
+  \end{tabular}
+\end{table*}
+
+One planned ablation has not yet been run: a controlled study of the gate mechanism itself. It compares the full rhizome with six otherwise identical arms (no gates, source-only, receiver-only, gates computed from the conditioning only, gates computed once from the initial state, and static per-channel gates), five seeds each, all retrained from scratch. Until then, the comparison with \texttt{fno} establishes that the rhizome \emph{as a whole} works better on this task, but not how much of the gain is due to the state-dependent gating specifically, as opposed to the recurrence, the loss and the LOS input.
 
 % ---------------------------------------------------------------------
 \subsection{Discussion}
 \label{sec:discussion}
 
-\TODO{What the gates learn; where the rhizome helps and where it does
-not; resolution transfer; next steps.}
+\paragraph{What the rhizome does well.} Across every configuration, the rhizome's advantage over the \texttt{fno} models is larger on physical observables than on per-voxel RMSE. It places ionization fronts more accurately (higher small-scale coherence), keeps them sharper, and reproduces bubble-size distributions, bias and stochasticity more faithfully. These are exactly the quantities that \cref{sec:fno-limitations} identified as weak points of a purely spectral, stationary kernel. They are also the ones that matter for 21\,cm inference, where bubble morphology and the field-level bias enter the observables.
+
+\paragraph{What the line of sight needs.} The most consequential finding is not about the operator itself. A 2-D model with $\pm32$ cells of LOS context, applied slice by slice, outperforms native 3-D models trained on the same data, and does so at a fraction of the cost. Together with the periodic tiling of the lightcones, this suggests that the bottleneck of the 3-D models is how they handle the LOS, not their transverse expressivity.
+
+\paragraph{Caveats.} Several confounds remain. All results are single seeds, and differences of a few percent (for example A against A0) may be partly noise. Part of the advantage in $\tau_e$ and the global history comes from training with BCE rather than from the operator, and the \texttt{fno} models should be retrained with BCE to separate the two. The contribution of the gating itself has not been isolated (\cref{sec:ablations}). Finally, all results are at one resolution; the grid-independence of the parameters has not been put to the test.
+
+

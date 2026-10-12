@@ -1,0 +1,114 @@
+% U-Net architecture diagram (after Ronneberger et al. 2015, Fig. 1)
+% Build:  cd Figures/src && pdflatex unet_architecture.tex && mv unet_architecture.pdf ..
+\documentclass[tikz,border=4pt]{standalone}
+\usepackage[T1]{fontenc}
+\usepackage{lmodern}
+\usepackage{amsmath,amssymb,bm}
+\usepackage[dvipsnames]{xcolor}
+\usetikzlibrary{arrows.meta,positioning,calc,fit,backgrounds}
+
+% ---- palette (matches fno_architecture.tex) --------------------------
+\colorlet{local}{BurntOrange!18}
+\colorlet{localline}{BurntOrange!85!black}
+\colorlet{deep}{BurntOrange!38}
+\colorlet{skip}{NavyBlue!75!black}
+\colorlet{lift}{Gray!18}
+
+% \fmap{name}{x}{y}{width}{height}{fill}: one feature map, anchored at its centre
+\newcommand{\fmap}[6]{%
+  \node[draw=localline, fill=#6, minimum width=#4cm, minimum height=#5cm,
+        inner sep=0pt] (#1) at (#2,#3) {};}
+
+\begin{document}
+\begin{tikzpicture}[
+    font=\small,
+    >={Stealth[length=2.2mm]},
+    every path/.style={line width=0.6pt},
+    lab/.style={font=\footnotesize, inner sep=1pt},
+    conv/.style={->, black},
+    down/.style={->, draw=BrickRed!80!black, line width=0.9pt},
+    up/.style={->, draw=ForestGreen!80!black, line width=0.9pt},
+    skipc/.style={->, draw=skip, dashed},
+    field/.style={draw, minimum size=0.9cm, inner sep=0pt},
+  ]
+
+  % level geometry: y position, map height, map width
+  \def\yA{0}     \def\hA{2.0}  \def\wA{0.16}
+  \def\yB{-2.0}  \def\hB{1.35} \def\wB{0.24}
+  \def\yC{-3.6}  \def\hC{0.9}  \def\wC{0.34}
+  \def\yD{-4.85} \def\hD{0.6}  \def\wD{0.46}
+
+  % ---------------- input / output --------------------------------------
+  \node[field, left color=Cyan!40, right color=Purple!45] (a) at (-0.4,\yA) {};
+  \node[lab, below=2pt of a] {$a(x)$};
+  \node[field, left color=Goldenrod!55, right color=OliveGreen!45] (u) at (11.4,\yA) {};
+  \node[lab, below=2pt of u] {$u(x)$};
+
+  % ---------------- encoder ---------------------------------------------
+  \fmap{e0a}{0.9}{\yA}{\wA}{\hA}{local}
+  \fmap{e0b}{1.5}{\yA}{\wA}{\hA}{local}
+  \fmap{e1a}{2.05}{\yB}{\wB}{\hB}{local}
+  \fmap{e1b}{2.65}{\yB}{\wB}{\hB}{local}
+  \fmap{e2a}{3.2}{\yC}{\wC}{\hC}{local}
+  \fmap{e2b}{3.85}{\yC}{\wC}{\hC}{local}
+  % bottleneck
+  \fmap{bna}{4.95}{\yD}{\wD}{\hD}{deep}
+  \fmap{bnb}{5.95}{\yD}{\wD}{\hD}{deep}
+  % ---------------- decoder ---------------------------------------------
+  \fmap{d2a}{7.05}{\yC}{\wC}{\hC}{local}
+  \fmap{d2b}{7.7}{\yC}{\wC}{\hC}{local}
+  \fmap{d1a}{8.25}{\yB}{\wB}{\hB}{local}
+  \fmap{d1b}{8.85}{\yB}{\wB}{\hB}{local}
+  \fmap{d0a}{9.4}{\yA}{\wA}{\hA}{local}
+  \fmap{d0b}{10.0}{\yA}{\wA}{\hA}{local}
+
+  % ---------------- conv arrows within a level --------------------------
+  \foreach \p/\q in {e0a/e0b, e1a/e1b, e2a/e2b, bna/bnb, d2a/d2b, d1a/d1b, d0a/d0b}
+    \draw[conv] (\p.east) -- (\q.west);
+  \draw[conv] (a.east) -- (e0a.west);
+  \draw[->, black] (d0b.east) -- node[lab, above] {$1{\times}1$} (u.west);
+
+  % ---------------- down / up -------------------------------------------
+  \draw[down] (e0b.south) |- (e1a.west);
+  \draw[down] (e1b.south) |- (e2a.west);
+  \draw[down] (e2b.south) |- (bna.west);
+  \draw[up]   (bnb.east) -| (d2a.south);
+  \draw[up]   (d2b.east) -| (d1a.south);
+  \draw[up]   (d1b.east) -| (d0a.south);
+
+  % ---------------- skip connections ------------------------------------
+  \draw[skipc] (e0b.east) -- (d0a.west);
+  \draw[skipc] (e1b.east) -- (d1a.west);
+  \draw[skipc] (e2b.east) -- (d2a.west);
+
+  % ---------------- annotations: resolution & channels ------------------
+  \node[lab, text=black!60, anchor=east] at ($(e0a.west)+(-0.05,-0.75)$) {$N$};
+  \node[lab, text=black!60, anchor=east] at ($(e1a.west)+(-0.05,-0.5)$) {$N/2$};
+  \node[lab, text=black!60, anchor=east] at ($(e2a.west)+(-0.05,-0.35)$) {$N/4$};
+  \node[lab, text=black!60, anchor=east] at ($(bna.west)+(-0.05,-0.42)$) {$N/8$};
+
+  \node[lab, above=1pt of e0b] {$c$};
+  \node[lab, above=1pt of e1b] {$2c$};
+  \node[lab, above=1pt of e2b] {$4c$};
+  \node[lab, above=1pt of bnb] {$8c$};
+  \node[lab, above=1pt of d2a] {$4c$};
+  \node[lab, above=1pt of d1a] {$2c$};
+  \node[lab, above=1pt of d0a] {$c$};
+
+  \node[lab, font=\footnotesize\itshape, text=black!65] at (2.5,1.45) {contracting path};
+  \node[lab, font=\footnotesize\itshape, text=black!65] at (8.6,1.45) {expanding path};
+  \node[lab, font=\footnotesize\itshape, text=black!65, below=10pt of $(bna)!0.5!(bnb)$] {bottleneck};
+
+  % ---------------- legend ----------------------------------------------
+  \begin{scope}[shift={(-0.6,-6.5)}]
+    \draw[conv] (0,0) -- (0.6,0);
+    \node[lab, anchor=west] at (0.7,0) {$3{\times}3$ conv + $\sigma$};
+    \draw[down] (3.0,0) -- (3.6,0);
+    \node[lab, anchor=west] at (3.7,0) {downsample ($2{\times}$ pool)};
+    \draw[up] (7.0,0) -- (7.6,0);
+    \node[lab, anchor=west] at (7.7,0) {upsample ($2{\times}$)};
+    \draw[skipc] (9.9,0) -- (10.5,0);
+    \node[lab, anchor=west] at (10.6,0) {skip: concatenate};
+  \end{scope}
+\end{tikzpicture}
+\end{document}

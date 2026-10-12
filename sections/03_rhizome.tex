@@ -3,61 +3,171 @@
 \label{sec:rhizome}
 % =====================================================================
 
-\TODO{Intro and the rhizome metaphor: every cell can connect to every
-other, and the strength of those connections is set by the current
-state rather than fixed by a hierarchy.}
+The name is borrowed from botany. A rhizome is a root system without a trunk or a hierarchy: any point can sprout a connection to any other, and which connections grow depends on local conditions rather than on a fixed plan. The rhizome neural operator applies this idea to operator learning. Every grid cell can exchange information with every other cell, as in a Fourier layer, but how strongly a cell sends and how strongly it listens is decided anew at every step from the current state of the field. The connections themselves therefore change as the prediction evolves, even though the parameters are fixed after training.
+
+This section derives the operator from the kernel integrals of \cref{sec:neural-operators}, then describes the architecture (\cref{fig:rhizome-architecture}), how it is evaluated efficiently, and the variants used in the experiments of \cref{sec:results}.
 
 % ---------------------------------------------------------------------
 \subsection{Design principles}
 \label{sec:rhizome-principles}
 
-\TODO{Single interaction mechanism (no separate local/global branches);
-connections are a state-dependent integral operator; weight-shared
-recurrence.}
+The design follows the four requirements formulated at the end of \cref{sec:adaptive-structure}:
+\begin{enumerate}
+  \item \textbf{Global reach.} Interactions between cells are carried by a learned kernel $\kernel(r-r')$ on the whole periodic domain, evaluated in Fourier space as in the FNO.
+  \item \textbf{State-dependent coupling.} Two learned \emph{gates} modulate the kernel at the sending and the receiving end. They are recomputed from the current hidden state at every update, so the effective coupling between two cells depends on the field at both of them.
+  \item \textbf{$\mathcal{O}(N\log N)$ cost.} The gates act channel-wise on each cell, so they factor out of the integral. The interaction is then a pointwise multiplication, one convolution evaluated with the FFT, and another pointwise multiplication: the same cost as a Fourier layer.
+  \item \textbf{Grid-independent parameters.} The model has no convolution stencils, no pooling and no parameters tied to particular cells. The kernel is parameterized by its Fourier coefficients on the normalized domain, and everything else acts pointwise.
+\end{enumerate}
+Two further choices complete the design. First, there is exactly \emph{one} mechanism for spatial communication: the gated integral. There is no separate local or convolutional branch next to it, as in the U-FNO; lifting, the update proposal and decoding all act on single cells. Second, the same update block is applied $\Niter$ times with shared weights. The model is a recurrent dynamical system on the hidden state rather than a stack of distinct layers.
+
+% ---------------------------------------------------------------------
+\subsection{Mathematical background: from kernel integrals to the rhizome}
+\label{sec:rhizome-math}
+
+The rhizome is best understood as a specific member of the family of kernel integral operators introduced in \cref{sec:neural-operator-layers}. This subsection derives it from the linear integral operator \cref{eq:kernel-integral} in three steps. First, the kernel is allowed to depend on the field it acts on. Second, that dependence is restricted to a separable form that keeps the FFT evaluation of the FNO. Third, the resulting operator is iterated. Throughout, $D$ is the periodic domain normalized to unit volume, and $v:D\to\R^{\dv}$ is a hidden field with $\dv$ channels.
+
+\paragraph{A hierarchy of kernels.} The most general kernel integral layer acting on $v$ lets the kernel depend on position and on the field at both ends of each connection:
+\begin{equation}
+  \label{eq:general-kernel}
+  (\Kop[v]\,v)(r) = \int_D \kappa\big(r,r',v(r),v(r');\theta\big)\,v(r')\dd r'.
+\end{equation}
+Different neural operators correspond to different restrictions of $\kappa$ (\cref{tab:kernel-hierarchy}). If $\kappa$ depends on $r$ and $r'$ only, \cref{eq:general-kernel} is the linear operator \cref{eq:kernel-integral}: the Green's function picture of \cref{sec:neural-operator-layers}. If it depends only on $r-r'$, it is a convolution and becomes the Fourier layer \cref{eq:kernel-integral-fourier}. If it depends on the field values, the operator becomes nonlinear in $v$, since $v$ now enters both as the integrand and through the kernel. Self-attention \citep{vaswani2017attention} is the best-known example: there $\kappa\propto\exp\!\big(q(v(r))\cdot k(v(r'))\big)$, normalized over $r'$, and evaluating it on a grid costs $\mathcal{O}(N^2)$.
+
+The rhizome sits between the Fourier layer and attention. It keeps a stationary kernel but multiplies it by two factors, one that depends on the field at the receiving point and one that depends on the field at the sending point:
+\begin{equation}
+  \label{eq:rhizome-effective-kernel}
+  \kappa^{\mathrm{eff}}(r,r') = \diag\!\big(A(v(r))\big)\,\kernel(r-r')\,\diag\!\big(B(v(r'))\big),
+\end{equation}
+with $A,B: \R^{\dv}\to(0,2)^{\dv}$ the receiver and source gates. Setting $A=B=1$ recovers the Fourier layer. Compared with attention, the dependence on the two endpoints is \emph{separable}: it is a product of a function of $v(r)$ and a function of $v(r')$. This is also the idea behind linear attention \citep{katharopoulos2020linear}, which replaces the softmax by a product of feature maps. The rhizome applies it channel by channel and multiplies it by a learned relative-position kernel $\kernel(r-r')$.
+
+\begin{table*}[!tp]
+  \centering
+  \caption{Kernel integral operators ordered by what the kernel may depend on. $N$: number of grid points.}
+  \label{tab:kernel-hierarchy}
+  \small
+  \setlength{\tabcolsep}{4pt}
+  \begin{tabular}{@{}llccc@{}}
+    \toprule
+    Operator & Kernel $\kappa$ & Linear & Stationary & Cost \\
+    \midrule
+    linear (Green's function) & $\kappa(r,r')$ & yes & no & $\mathcal{O}(N^2)$ \\
+    Fourier layer & $\kappa(r-r')$ & yes & yes & $\mathcal{O}(N\log N)$ \\
+    \textbf{rhizome} & $\diag A(v(r))\,\kernel(r-r')\,\diag B(v(r'))$ & no & no & $\mathcal{O}(N\log N)$ \\
+    attention & $\kappa(v(r),v(r'))$, normalized & no & no & $\mathcal{O}(N^2)$ \\
+    \bottomrule
+  \end{tabular}
+\end{table*}
+
+\paragraph{Operator form.} Write $M_a$ for the multiplication operator $(M_a f)(r)=a(r)\,f(r)$, applied channel by channel, and $C_\kappa$ for the convolution $(C_\kappa f)(r)=\int_D\kappa(r-r')f(r')\dd r'$. The rhizome message then reads
+\begin{equation}
+  \label{eq:rhizome-operator-form}
+  \msg = M_{A(v)}\;C_{\kernel}\;M_{B(v)}\;V(v),
+\end{equation}
+where $V$ is the pointwise value map. Each factor is simple in one basis: the multiplication operators are diagonal in position space, and the convolution is diagonal in Fourier space, where $\widehat{C_\kappa f}(k)=\hat\kappa(k)\hat f(k)$. The rhizome therefore alternates between the two bases: multiply in position space, transform, multiply in Fourier space, transform back, multiply again. This is the same structure as the split-step Fourier methods of computational physics, where a potential acts in position space and the kinetic term in momentum space, each where it is diagonal. Like them, it costs two FFTs per application.
+
+The factorization also makes the operator well behaved. Since the gates lie in $(0,2)$, both multiplication operators have norm at most 2 on $L^2(D)$. By Parseval's theorem, the norm of the convolution is $\sup_k\norm{\hat\kernel(k)}$. Hence
+\begin{equation}
+  \label{eq:rhizome-bound}
+  \norm{M_{A}\,C_{\kernel}\,M_{B}\,f}_{L^2} \;\le\; 4\,\sup_{\abs{k}\le\kmax}\norm{\hat\kernel(k)}\;\norm{f}_{L^2},
+\end{equation}
+independently of the field that produced the gates. State dependence cannot make the interaction blow up.
+
+\paragraph{Mode coupling: smooth transport, sharp modulation.} \Cref{sec:discretisation} noted that the spectral path of an FNO is band-limited: everything above $\kmax$ in its output has to be generated by the pointwise nonlinearity. In the rhizome, the gates change this. A product in position space is a convolution in Fourier space, so the Fourier transform of \cref{eq:rhizome-operator-form} is
+\begin{equation}
+  \label{eq:rhizome-mode-coupling}
+  \begin{aligned}
+  \hat\msg(k) &= \sum_{q}\hat A(k-q)\;\hat\kernel(q)\;\widehat{(B\,V)}(q),\\
+  \hat\kernel(q) &= 0 \quad\text{for } \abs{q}>\kmax .
+  \end{aligned}
+\end{equation}
+The kernel only transports the band $\abs{q}\le\kmax$. Even so, the source gate first folds all input wavenumbers into that band, through $\widehat{BV}(q)=\sum_p\hat B(q-p)\hat V(p)$, and the receiver gate then spreads the transported band over every wavenumber present in $A$. If the receiver gate is sharp, for example close to zero inside an ionized region and close to two outside, a smooth message is multiplied by a sharp mask, and the result has a sharp edge exactly where the gate changes. The rhizome can thus carry information smoothly over long distances with few modes while placing sharp structure where the state of the field puts it. Whether the trained gates actually behave like this has not been checked directly; \cref{eq:rhizome-mode-coupling} shows only that the mechanism is available.
+
+\paragraph{Iteration as a path series.} A single application of \cref{eq:rhizome-effective-kernel} couples $r'$ to $r$ through the gates at the two endpoints only. Iteration adds paths. Ignoring for a moment the nonlinearity and the damping of the update, and freezing the gates, the recurrence becomes $v^{t+1}=c+\Kop v^t$ with $\Kop=M_A C_{\kernel} M_B$. After $\Niter$ steps this gives
+\begin{equation}
+  \label{eq:neumann}
+  v^{\Niter} = \sum_{n=0}^{\Niter-1}\Kop^{\,n}\,c \;+\; \Kop^{\Niter} v^0,
+\end{equation}
+the truncated Neumann series of the solution $v=(I-\Kop)^{-1}c$ of the Fredholm integral equation of the second kind $v=c+\Kop v$. The resolvent $(I-\Kop)^{-1}$ plays the role of the Green's function of \cref{sec:neural-operator-layers}, now for a state-dependent problem. Each term of the series is a sum over paths: the second-order term, for example,
+\begin{multline}
+  \label{eq:two-hop}
+  (\Kop^2 f)(r) = \int_D\!\int_D A(r)\,\kernel(r-r_1)\,\underbrace{B(r_1)A(r_1)}_{\text{gates at } r_1}\\
+  \times\kernel(r_1-r_2)\,B(r_2)\,f(r_2)\dd r_1\dd r_2,
+\end{multline}
+couples $r_2$ to $r$ through every intermediate point $r_1$, weighted by the gates there. This is the mathematical form of the path effects mentioned in \cref{sec:rhizome-interaction}. A region whose gates are small blocks the paths through it and so shadows what lies behind it, even though no single update can see beyond its two endpoints. In scattering theory the same expansion is the Born series, with each term adding one more scattering event. The actual rhizome differs from this linear picture through the $\tanh$ proposal, the damping $(1-\Delta t)$ and the gates being recomputed at every step, but the path structure is the same.
+
+\paragraph{Continuous-time view.} The update of \cref{alg:rhizome}, $\h^{t+1}=(1-\Delta t)\h^t+\Delta t\,\bm p^t$, is the forward Euler discretization of the nonlocal evolution equation
+\begin{equation}
+  \label{eq:rhizome-ode}
+  \partial_\tau \h(r,\tau) = -\h(r,\tau) + \tanh\!\Big(\Phi\big(\h(r,\tau),\ (\Kop[\h]\,V(\h))(r),\ \cond(r)\big)\Big),
+\end{equation}
+integrated from $\tau=0$ to $\tau=\Niter\Delta t$ (3 in the experiments), with $\Phi$ the pointwise proposal network. Equations of this form, a decay term plus a saturating function of a spatially integrated input, are the neural field equations of computational neuroscience \citep{amari1977dynamics}, in which $\partial_t u=-u+\int w(r-r')\,S(u(r'))\dd r'+I(r)$ describes the activity of a continuous sheet of neurons. The rhizome generalizes that picture with many channels, a learned kernel and connections gated by the state. Viewed this way, it is also a neural ODE \citep{chen2018neural} on a function space, integrated with a fixed explicit scheme. The bound on the hidden state follows directly: if $\abs{\h}\le1$ componentwise, then so is $(1-\Delta t)\h+\Delta t\,\bm p$ for $\abs{\bm p}\le1$ and $0<\Delta t\le1$.
+
+\paragraph{Discretization.} On a uniform grid of $N$ points on the unit-volume domain, the integral in \cref{eq:general-kernel} becomes the sum \cref{eq:kernel-integral-discrete} with weights $\Delta r_j=1/N$. With the kernel represented by its retained Fourier modes, $\kernel(r)=\sum_{\abs{k}\le\kmax}\hat\kernel(k)\,e^{2\pi i k\cdot r}$, this sum is evaluated \emph{exactly} by the FFT:
+\begin{equation}
+  \label{eq:fft-quadrature}
+  \begin{aligned}
+  \frac1N\sum_{j=1}^{N}\kernel(r_i-r_j)\,g(r_j) &= \sum_{\abs{k}\le\kmax}\hat\kernel(k)\,\hat g_k\,e^{2\pi i k\cdot r_i},\\
+  \hat g_k &= \frac1N\sum_{j=1}^N g(r_j)\,e^{-2\pi i k\cdot r_j},
+  \end{aligned}
+\end{equation}
+provided every dimension of the grid has enough points (at least $2\kmax$ in the implementation) for the retained modes to remain distinct. The only approximation relative to the continuum operator is the quadrature itself. This identity is what the numerical verification in \cref{sec:rhizome-discretisation} checks, by evaluating the left-hand side directly over all pairs.
 
 % ---------------------------------------------------------------------
 \subsection{State-dependent integral interaction}
 \label{sec:rhizome-interaction}
 
-At iteration $t$, cell $i$ at position $r_i$ receives the message
+Each grid cell $i$ at position $r_i$ carries a hidden state $\h_i^t$ of $\dv$ channels and a fixed conditioning vector $\cond_i$, built from the input density and the global parameters. At update $t$, cell $i$ receives the message
 \begin{equation}
   \label{eq:rhizome-message}
+  \begin{split}
   \msg_i^t = \frac{1}{N}\sum_{j=1}^{N}
-  \diag\!\big(\Agate(\h_i^t,\cond_i)\big)\,
-  \kernel(r_i-r_j)\,
-  \diag\!\big(\Bgate(\h_j^t,\cond_j)\big)\,
+  &\diag\!\big(\Agate(\h_i^t,\cond_i)\big)\,
+  \kernel(r_i-r_j)\\
+  &\times\diag\!\big(\Bgate(\h_j^t,\cond_j)\big)\,
   \Vval(\h_j^t,\cond_j),
+  \end{split}
 \end{equation}
 where
 \begin{itemize}
-  \item $\Bgate$ is the learned \emph{source} (transmission) gate,
-  \item $\Agate$ is the learned \emph{receiver} (response) gate,
-  \item $\kernel$ is a learned periodic, channel-mixing spatial kernel,
-  \item $\Vval$ builds the transmitted value from state and conditioning,
-  \item $N = HW$ is uniform quadrature on the normalised periodic box.
+  \item $\Vval$ builds the \emph{value} that cell $j$ transmits from its state and conditioning,
+  \item $\Bgate$ is the \emph{source gate}: how strongly cell $j$ transmits, per channel,
+  \item $\kernel(r_i-r_j)\in\R^{\dv\times\dv}$ is a learned, periodic, channel-mixing kernel that carries the signal across the separation $r_i-r_j$,
+  \item $\Agate$ is the \emph{receiver gate}: how strongly cell $i$ accepts what arrives, per channel,
+  \item $N$ is the number of grid cells, so that $1/N$ is the uniform quadrature weight on the normalized periodic box.
 \end{itemize}
 
-\TODO{Continuum form of \eqref{eq:rhizome-message} as an integral over
-$\T^d$; show it reduces to the FNO kernel when $\Agate=\Bgate=1$.}
+\begin{figure*}[!tp]
+  \centering
+  \figplaceholder[0.92\linewidth]{rhizome_architecture.pdf}{Rhizome block diagram.}
+  \caption{Rhizome Neural Operator architecture. \emph{Top:} the input density bands and the global scalars (redshift $z$, simulation parameters $\vartheta$) are lifted and embedded into a conditioning field $\cond$, which initializes the hidden state and is fed into every update. One update block with shared weights is applied $\Niter$ times; a pointwise decoder maps the final state to $\xHI$ (and, in the multi-field model, to $T_b$). \emph{Bottom:} one update. The gates produce a source factor $\Bgate$ and a receiver factor $\Agate$ from the current state. The source-gated value is convolved with the kernel $\kernel$ in Fourier space and multiplied by the receiver gate, giving the message $\msg^t$. A pointwise proposal combines message, state and conditioning, and an explicit Euler step updates the state.}
+  \label{fig:rhizome-architecture}
+\end{figure*}
 
-\begin{proposition}[Reduction to a Fourier layer]
-  \label{prop:fno-limit}
-  \TODO{State and prove.}
-\end{proposition}
+Read from right to left, \cref{eq:rhizome-message} describes a transmission: cell $j$ prepares a value, decides how loudly to send it, the kernel carries it over the distance $r_i-r_j$, and cell $i$ decides how much of it to take in. It is the quadrature of the operator \cref{eq:rhizome-operator-form}, with the effective kernel \cref{eq:rhizome-effective-kernel} evaluated at the current state $(\h^t,\cond)$. This is the key difference from the FNO: the base kernel $\kernel$ is stationary, but the effective kernel depends on the field at both ends of every connection and changes from update to update.
+
+The gates are deliberately simple. They act channel by channel on single cells and therefore factor out of the sum in \cref{eq:rhizome-message}. This is what keeps the cost at that of a Fourier layer: the network never forms the $N\times N$ matrix of pairwise couplings, which for a $140\times140$ slice alone would have about $3.8\times10^8$ entries per channel pair. The price is expressivity. The coupling between two cells is a product of a sender factor and a receiver factor around a fixed kernel, not an arbitrary function of both states as in attention. In particular, a single update cannot make the coupling between $r$ and $r'$ depend on the cells \emph{between} them. Such path effects, like the shadowing of a region by neutral gas along the line of sight, emerge only over several updates, through the path series \cref{eq:two-hop}.
 
 % ---------------------------------------------------------------------
 \subsection{Gating: source and receiver factors}
 \label{sec:rhizome-gates}
 
-\TODO{Gate range $(0,2)$ via $2\,\mathrm{sigmoid}$; recomputed every
-iteration; channel-wise factorisation avoids an $N\times N$ edge tensor;
-signed and asymmetric interactions allowed.}
+A single pointwise network maps $[\h^t,\cond]$ to $2\dv$ logits per cell, which are split into the source and receiver gates and passed through $2\,\mathrm{sigmoid}(\cdot)$. Each gate value therefore lies in $(0,2)$ and equals one at zero logit: an untrained gate leaves the kernel unchanged, and training can then learn to amplify or suppress transmission and reception.
+
+Three properties of the gates are worth stating explicitly:
+\begin{itemize}
+  \item \textbf{They are recomputed at every update} from the previous state and the fixed conditioning. A cell that becomes ionized during the rollout can change how it sends and receives in the next update.
+  \item \textbf{Source and receiver are independent.} Interactions may be asymmetric: cell $j$ can influence cell $i$ strongly while $i$ barely influences $j$. Since the kernel is not constrained to be positive, interactions may also be signed.
+  \item \textbf{They are channel-wise.} Each of the $\dv$ channels has its own gate, so different channels can carry different kinds of information with different reach. Channels are mixed only by the kernel $\kernel$ and by the pointwise networks.
+\end{itemize}
+No physical constraint is imposed: the operator does not enforce reciprocal couplings, conservation of photons or any form of radiative transfer. Whatever physical interpretation the gates acquire is learned from the data.
 
 % ---------------------------------------------------------------------
 \subsection{Recurrent time-stepping}
 \label{sec:rhizome-recurrence}
 
-\begin{algorithm}[H]
+The hidden state is initialized from the conditioning and updated $\Niter$ times with the same weights (\cref{alg:rhizome}). Each update forms the message, combines it with the state and the conditioning in a pointwise \emph{proposal}, and takes an explicit Euler step of size $\Delta t$ towards that proposal. The final state is decoded pointwise into the $\xHI$ logit.
+
+\begin{algorithm}[!htb]
   \caption{Rhizome operator forward pass}
   \label{alg:rhizome}
   \begin{algorithmic}[1]
@@ -65,7 +175,7 @@ signed and asymmetric interactions allowed.}
     \State $\cond \gets \mathrm{lift}(\delta) + \mathrm{embed}(z,\vartheta)$
     \State $\h^0 \gets \tanh(\cond)$
     \For{$t = 0,\dots,\Niter-1$} \Comment{shared weights}
-      \State $(\bm{s},\bm{r}) \gets 2\,\mathrm{sigmoid}\big(\mathrm{gates}([\h^t,\cond])\big)$
+      \State $(\bm{s},\bm{r}) \gets 2\,\mathrm{sigmoid}\big(\mathrm{gates}([\h^t,\cond])\big)$ \Comment{source, receiver}
       \State $\bm{v} \gets \Vval([\h^t,\cond])$
       \State $\msg^t \gets \bm{r}\odot \Finv\!\big(R\cdot\F(\bm{s}\odot\bm{v})\big)$
       \State $\bm{p} \gets \tanh\big(\mathrm{pointwise}([\h^t,\msg^t,\cond])\big)$
@@ -75,39 +185,125 @@ signed and asymmetric interactions allowed.}
   \end{algorithmic}
 \end{algorithm}
 
-\TODO{Interpretation as explicit Euler integration; stability in
-$\Delta t$; choice of $\Niter$.}
+Because the proposal is bounded by $\tanh$ and the update is a convex combination for $0<\Delta t\le1$, the hidden state stays bounded by one throughout the rollout. This keeps long rollouts numerically stable, but it is not a convergence guarantee: nothing forces the iteration towards a fixed point. In practice the model is trained and evaluated at a fixed number of updates. All experiments in \cref{sec:results} use $\Niter=6$ and $\Delta t=0.5$.
+
+Weight sharing makes the parameter count independent of $\Niter$. It also makes the model behave like a learned dynamical system rather than a deep feed-forward network, which raises the question of what happens away from the training horizon. A small pilot on synthetic $32\times32$ lightcones answers this (\cref{tab:rhizome-pilot}). The tied rhizome improved modestly on an earlier additive recurrent model (Fourier message plus separate local message) at an equal parameter count, while an untied version with independent weights per update, at four times the parameters, was more accurate still. Running the tied model for more updates than it was trained with degraded its accuracy, although the hidden state stayed bounded. The number of updates is therefore part of the trained model, not a free accuracy knob.
+
+\begin{table}[!htbp]
+  \centering
+  \caption{Architecture pilot on synthetic $32\times32$ lightcones (single seed, CPU; 512 training slices, 64 test slices). \emph{Top:} rhizome against the additive recurrent baseline. \emph{Bottom:} the tied rhizome evaluated at different numbers of updates; it was trained with four. Mixed slices have mean $\xHI$ between 0.05 and 0.95. This toy problem is not a physical simulation; the table characterizes the architecture, not its accuracy on 21\,cm data.}
+  \label{tab:rhizome-pilot}
+  \begin{tabular}{lrr}
+    \toprule
+    Model & Params & RMSE, mixed \\
+    \midrule
+    Rhizome, tied           & 15.6\,k & 0.196 \\
+    Additive recurrent      & 15.9\,k & 0.207 \\
+    Rhizome, untied         & 60.3\,k & 0.181 \\
+    \bottomrule
+  \end{tabular}
+  \\[8pt]
+  \begin{tabular}{rr}
+    \toprule
+    Updates $\Niter$ & RMSE, mixed \\
+    \midrule
+    1 & 0.260 \\
+    2 & 0.205 \\
+    \textbf{4} (trained) & \textbf{0.196} \\
+    8 & 0.265 \\
+    \bottomrule
+  \end{tabular}
+\end{table}
 
 % ---------------------------------------------------------------------
-\subsection{Discretisation and spectral evaluation}
+\subsection{Discretization and spectral evaluation}
 \label{sec:rhizome-discretisation}
 
-\TODO{FFT is an efficient evaluator of the connections, not a separate
-predictor; orthonormal FFT pair already gives the $1/N$ quadrature;
-real DC and conjugate-frequency constraints for a real kernel.}
+The FFT in \cref{fig:rhizome-architecture} is not a separate component that predicts anything; it is simply an efficient and exact way to evaluate the sum over $j$ in \cref{eq:rhizome-message} (\cref{eq:fft-quadrature}). The kernel $\kernel$ is parameterized by its Fourier coefficients $R(k)$ for $\abs{k}\le\kmax$, exactly as in the FNO (\cref{eq:mode-truncation}). Three details make this evaluation correct:
+\begin{itemize}
+  \item \textbf{Quadrature.} With an orthonormal FFT pair, the forward and inverse transforms together already produce the $1/N$ weight of \cref{eq:rhizome-message}. Adding a further factor for the cell area would make messages shrink as the resolution grows.
+  \item \textbf{Real kernel.} The zero mode and the conjugate-symmetric modes are constrained so that $\kernel$ is real in physical space.
+  \item \textbf{Verification.} The FFT implementation was checked against an independent calculation of the left-hand side of \cref{eq:fft-quadrature} that sums the retained Fourier series over all source--receiver pairs explicitly, without any FFT. Outputs agree to about $10^{-15}$, and so do the gradients with respect to inputs and parameters.
+\end{itemize}
+
+The architecture inherits the FNO's discretization properties (\cref{sec:discretisation}). Since no parameter refers to a particular cell, shifting the input periodically shifts the output in the same way. The same weights can be applied to any grid that represents the same physical box with at least $2\kmax$ points per dimension. The caveats also carry over: the gates and the proposal are nonlinear and alias on coarse grids, so transfer across resolutions has to be validated rather than assumed. It has not been tested in this work.
+
+% ---------------------------------------------------------------------
+\subsection{Model variants}
+\label{sec:rhizome-variants}
+
+The same operator was used in four configurations, summarized in \cref{tab:rhizome-variants}. They differ in what the model sees along the line of sight (LOS) and in which fields it predicts.
+
+\begin{table*}[!tp]
+  \centering
+  \caption{Rhizome variants used in the experiments. LOS: line of sight.}
+  \label{tab:rhizome-variants}
+  \small
+  \begin{tabular}{@{}p{2.6cm}p{4.4cm}p{3.6cm}p{3.6cm}@{}}
+    \toprule
+    Variant & Input & Output & Kernel \\
+    \midrule
+    2-D slice
+      & one transverse slice + 13 LOS density bands ($\pm32$ cells)
+      & $\xHI$ on the slice
+      & 2-D, 24 modes \\
+    3-D window
+      & native LOS windows of 256 cells + $2\times32$ halo
+      & $\xHI$ in the window
+      & 3-D, modes (36,\,36,\,24), rank-48 factorized \\
+    Slice-wise 2-D
+      & 2-D slice model applied to every slice of a cone
+      & full 3-D $\xHI$ cone, restacked
+      & as 2-D slice \\
+    Multi-field slice-wise
+      & density and LOS-velocity bands, global-history band means
+      & $\xHI$ and $T_b$ (structured head)
+      & as 2-D slice \\
+    \bottomrule
+  \end{tabular}
+\end{table*}
+
+\paragraph{2-D slices with LOS context.} The first variant predicts one transverse $140\times140$ slice of a lightcone. Its input is the density on that slice and on the neighbouring slices: single slices within $\pm3$ cells and band means further out, up to $\pm32$ cells, for 13 density channels in total. The conditioning scalars are $\log(1+z)$ and the eleven simulation parameters.
+
+\paragraph{3-D native windows.} The second variant works directly in three dimensions on windows of the native lightcone. It uses anisotropic mode counts (36 in each transverse direction, 24 along the LOS) and a rank-48 factorized spectral kernel to keep the parameter count at 5.8\,M. Because the LOS is not periodic, the windows are zero-padded by 64 cells before the FFT. A code review found that this padding is too short to separate all physical LOS offsets: displacements of $+160$ and $-160$ cells fall on the same residue of the padded circle, so the base kernel cannot treat them differently. The gates can still modulate these couplings, but the 3-D kernel is a constrained rather than a fully general LOS interaction.
+
+\paragraph{Slice-wise reconstruction of 3-D cones.} The third variant applies the 2-D slice model to every native slice of a lightcone, each with its own $\pm32$-cell LOS context, and restacks the predictions into a full 3-D cone (\cref{fig:slicewise}). In the language of windowed inference this is maximal overlap: window one slice, stride one slice. The model never sees the full LOS jointly; it only needs to know what lies within about 46\,Mpc of each slice. As \cref{sec:results} shows, this turns out to be enough, and it avoids both the padding issue above and the memory cost of 3-D windows.
+
+\begin{figure}[!htbp]
+  \centering
+  \figplaceholder[\linewidth]{slicewise_reconstruction.pdf}{Slice-wise reconstruction.}
+  \caption{Slice-wise reconstruction of a 3-D lightcone. For each slice $i$ along the line of sight, the 2-D rhizome receives 13 density channels: the seven single slices within $\pm3$ cells and six band means out to $\pm32$ cells (blue). In the multi-field model the same bands are built for the LOS velocity. Global scalars enter as conditioning. The prediction for slice $i$ is computed independently, and the predictions for all slices are restacked into the 3-D cone.}
+  \label{fig:slicewise}
+\end{figure}
+
+\paragraph{Multi-field prediction.} The final variant predicts both $\xHI$ and the 21\,cm brightness temperature $T_b$. It receives 13 LOS bands each of density and LOS velocity. Its scalars are $1/(1+z)$, the eleven parameters and the band means of two emulated global histories, $\bar x_{\mathrm{HI}}(z)$ and $\bar T_b(z)$. The model outputs an $\xHI$ logit and a spin variable $u$, and $T_b$ is assembled by a \emph{structured head} that encodes the known form of the signal:
+\begin{equation}
+  \label{eq:structured-head}
+  T_b = T_0(z)\,\xHI\,(1+\delta)\,F_v\,\big(1-e^{u}\big),
+\end{equation}
+where $T_0(z)$ is the redshift-dependent amplitude, $F_v$ the correction for the LOS velocity gradient, and $1-e^{u}$ plays the role of the spin-temperature factor $1-T_{\mathrm{CMB}}/T_S$. The physical prefactor $T_0(1+\delta)F_v$ is computed exactly, so the network only has to learn the neutral fraction and the spin factor.
 
 % ---------------------------------------------------------------------
 \subsection{Assumptions and limitations}
 \label{sec:rhizome-assumptions}
 
-\begin{assumption}
-  \TODO{e.g.\ periodic domain; translation-invariant base kernel.}
-\end{assumption}
-
-\TODO{No reciprocity, conservation, or radiative-transfer physics is
-imposed; expressivity vs.\ a fully pair-dependent kernel.}
+The rhizome makes fewer structural assumptions than the architectures of \cref{sec:spatial-structure}, but it does make some:
+\begin{itemize}
+  \item \textbf{Periodicity.} The kernel lives on a periodic domain. This is exact in the transverse directions of the lightcones, which are periodic, but not along the LOS. The 2-D and slice-wise variants avoid the issue by treating the LOS through input bands; the 3-D variant relies on zero padding (\cref{sec:rhizome-variants}).
+  \item \textbf{Product-form coupling.} The effective kernel \cref{eq:rhizome-effective-kernel} is a stationary kernel modulated at its two ends. It cannot represent couplings that depend jointly and arbitrarily on the states of both cells, or on the cells between them, within a single update.
+  \item \textbf{No physics in the operator.} Reciprocity, conservation and radiative transfer are not imposed. Physics enters only through the inputs, the conditioning and, for $T_b$, the structured head.
+  \item \textbf{Fixed rollout length.} The model is accurate at the number of updates it was trained with, not beyond (\cref{tab:rhizome-pilot}). There is no convergence or fixed-point guarantee.
+  \item \textbf{Untested resolution transfer.} Although the parameters are grid-independent, all results in this report were obtained at a single resolution.
+\end{itemize}
 
 % ---------------------------------------------------------------------
 \subsection{Relation to FNO, U-FNO and attention}
 \label{sec:rhizome-relations}
 
-\TODO{Position against \cref{tab:inductive-biases}; parameter count and
-cost $\mathcal{O}(\Niter\, N\log N)$.}
+\Cref{tab:inductive-biases} places the rhizome among the architectures of \cref{sec:spatial-structure}. Compared with the \textbf{FNO}, it keeps the global spectral kernel and its $\mathcal{O}(N\log N)$ cost, adds the gates that make the effective kernel state-dependent, and replaces the stack of independent layers by a weight-shared recurrence. The pointwise proposal takes over the role of the FNO's pointwise path $W$. With gates fixed to one and untied weights, an update reduces to a Fourier layer with a nonlinear pointwise path.
 
-\begin{figure}[H]
-  \centering
-  \figplaceholder{rhizome_architecture.pdf}{Rhizome block diagram: gates,
-  value map, spectral kernel, recurrence.}
-  \caption{Rhizome Neural Operator architecture.}
-  \label{fig:rhizome-architecture}
-\end{figure}
+Compared with the \textbf{U-Net and U-FNO}, it has no convolution stencils, no pooling and no explicit hierarchy of scales. Multi-scale behaviour has to come from the kernel, which spans all scales up to $\kmax$, and from the repeated updates. This keeps the parameterization independent of the grid, which the convolutional path of the U-FNO does not.
+
+Compared with \textbf{attention}, it shares the central idea that the coupling between two points should depend on their content, but it restricts that dependence to a product of per-cell factors around a stationary kernel. This restriction is what brings the cost down from $\mathcal{O}(N^2)$ to $\mathcal{O}(N\log N)$: the rhizome trades the full flexibility of pairwise attention for a form that can be evaluated with a single FFT pair per update.
+
+The cost of a forward pass is $\Niter$ times that of one Fourier layer, $\mathcal{O}(\Niter\,\dv\,N\log N)$ for the transforms plus pointwise work, and the parameter count is that of a single update block.

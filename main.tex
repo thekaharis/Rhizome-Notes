@@ -2,42 +2,55 @@
 %  Rhizome Neural Operator — Technical Report
 %  Build:  latexmk            (config in .latexmkrc; PDF lands in pdf/)
 % =====================================================================
-\documentclass[11pt,a4paper]{article}
+\documentclass[10pt,a4paper,twocolumn]{article}
 
 \input{preamble}
 
 % ---- Draft switch: set to \draftfalse to hide all \TODO{} notes -----
 \drafttrue
 
-\title{\textbf{Rhizome Neural Operator} \\[0.3em]
-       \large Technical Report}
-\author{Haris Kapetanovic}
-\date{Working draft --- \today}
-
 \begin{document}
 
-\maketitle
+% ---- Title block (full width, journal style) ------------------------
+\twocolumn[{%
+  \begin{flushleft}
+    {\small\itshape Technical report \textperiodcentered{} working draft, \today}\par
+    \vspace{2pt}\rule{\textwidth}{0.5pt}\par
+    \vspace{18pt}
+    {\LARGE\bfseries Rhizome Neural Operator}\par
+    \vspace{6pt}
+    {\large\itshape Technical Report: a state-dependent integral operator for 21\,cm reionization fields}\par
+    \vspace{12pt}
+    Haris Kapetanovic\par
+    \vspace{14pt}
+  \end{flushleft}
+  \hspace{0.12\textwidth}%
+  \begin{minipage}{0.88\textwidth}
+    \small
+    \textbf{Abstract}\par\vspace{3pt}
+    Neural operators such as the Fourier Neural Operator (FNO) learn maps between function spaces efficiently, but their kernels are global, stationary and band-limited, which makes sharp, localized structure such as the ionization fronts of the epoch of reionization hard to represent. Multi-scale hybrids like the U-Net and U-FNO recover local detail at the cost of resolution independence, and still use a fixed communication pattern. This report introduces the \emph{rhizome neural operator}, a recurrent integral operator whose connections depend on the state of the field. A learned kernel, evaluated with the FFT, is modulated at every update by per-cell source and receiver gates computed from the current hidden state, so that the effective kernel is state-dependent at the cost of a single Fourier layer. On \texttt{21cmFAST} lightcones, the rhizome outperforms the best models of an existing FNO-based pipeline on every task tested: 3-D $x_{\mathrm{HI}}$ (test RMSE 0.059 against 0.068) and joint $x_{\mathrm{HI}}$ and 21\,cm brightness temperature (0.050 / 5.8\,mK against 0.056 / 6.5\,mK). Its margin is largest on physical observables. A 2-D variant that sees $\pm32$ cells of line-of-sight context and is applied slice by slice beats the native 3-D models on the same data. It halves the error in bubble sizes and in the field-level bias, sharpens ionization fronts from 6.2 to 3.9\,Mpc, and predicts a full cone in under 6\,s. A small-scale power term in the loss removes its one weakness, excess $T_b$ structure before reionization.\par
+    \vspace{8pt}
+    \textbf{Keywords:} neural operators, Fourier neural operator, operator learning, 21\,cm cosmology, epoch of reionization, emulation
+  \end{minipage}
+  \vspace{16pt}
+}]
+\thispagestyle{plain}
 
-\begin{abstract}
-  \TODO{One paragraph: the problem (learning field-to-field maps for
-  21\,cm reionization), what neural operators/FNOs give and miss, what the
-  rhizome operator changes, and the headline result.}
-\end{abstract}
-
-\tableofcontents
-\clearpage
+{\small\tableofcontents}
+\vspace{6pt}
 
 \input{sections/01_neural_operators}
 \input{sections/02_spatial_structure}
 \input{sections/03_rhizome}
 \input{sections/04_training_results}
 
-\clearpage
+\FloatBarrier
 \appendix
 \input{appendix/A_notation}
+\FloatBarrier
 
-\clearpage
+{\small
 \bibliographystyle{plainnat}
-\bibliography{references}
+\bibliography{references}}
 
 \end{document}

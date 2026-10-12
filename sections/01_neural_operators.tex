@@ -56,13 +56,13 @@ The Fourier Neural Operator (FNO) leverages this approach in discrete function s
 
 where $r_i$ and $r_j$ are points on the discrete grid, and $\Delta r_j$ is the grid spacing. The FNO computes this sum efficiently by transforming the input function $f$ into Fourier space, applying the learned kernel $\kappa$ in Fourier space, and then transforming back to physical space. This is achieved using the Fast Fourier Transform (FFT), which has a computational complexity of $\mathcal{O}(N \log N)$, making it suitable for large-scale problems. A diagram of the FNO architecture is shown in \cref{fig:fno-architecture}. The FNO consists of three main components: a lifting layer that maps the input function $f$ to a higher-dimensional representation, a series of Fourier layers that apply the learned kernel in Fourier space, and a projection layer that maps the output back to the desired function space. The lifting and projection layers are typically implemented as fully connected neural networks, while the Fourier layers consist of FFTs, learned multiplications in Fourier space, and inverse FFTs.
 
-\begin{figure}[H]
+\begin{figure*}[!tp]
   \centering
-  \figplaceholder{fno_architecture.pdf}{FNO block diagram: lift $P$ $\to$
+  \figplaceholder[0.85\linewidth]{fno_architecture.pdf}{FNO block diagram: lift $P$ $\to$
   Fourier layers ($\F$, $R_\phi$, $\Finv$ + local $W$) $\to$ projection $Q$.}
   \caption{Fourier Neural Operator architecture.}
   \label{fig:fno-architecture}
-\end{figure}
+\end{figure*}
 
 While it is useful to think about FNOs from this theoretical framework of kernel integral operators in PDEs, there is no obstacle in removing that context and examining the architecture as a general-purpose operator learning framework. What happens on paper is that the input data is transformed into Fourier space, where a learned kernel is applied. The learned weights correspond to the Fourier coefficients of the kernel, so instead of spatial context, the FNO is learning a global, stationary, spectral representation of the data. This is a central tradeoff of the FNO architecture: it is very efficient and can learn global structure, but it is limited in its ability to learn local, multi-scale features. 
 

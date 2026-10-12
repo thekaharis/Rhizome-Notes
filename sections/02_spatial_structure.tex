@@ -19,7 +19,7 @@ Each layer of a neural operator can be written in the kernel form of \cref{eq:ke
 
 \Cref{tab:inductive-biases} summarizes these properties for the architectures discussed in this report.
 
-\begin{table}[H]
+\begin{table*}[!tp]
   \centering
   \caption{Inductive biases of the operator architectures discussed in this report.}
   \label{tab:inductive-biases}
@@ -35,7 +35,7 @@ Each layer of a neural operator can be written in the kernel form of \cref{eq:ke
     Rhizome      & global                    & no (gated) & implicit & yes, $\mathcal{O}(N\log N)$ \\
     \bottomrule
   \end{tabular}
-\end{table}
+\end{table*}
 
 % ---------------------------------------------------------------------
 \subsection{The U-Net}
@@ -59,7 +59,7 @@ where each $C_s$ is a block of $3\times3$ convolutions with nonlinearities. The 
 \end{equation}
 and a final $1\times1$ convolution maps $d_0$ to the output $u$. The skip connections $e_s\to d_s$ are the key ingredient. Pooling discards the exact position of features, and upsampling alone cannot restore it. The skip connections pass the full-resolution encoder features directly to the decoder, so the network can combine \emph{what} is present (from the coarse levels) with \emph{where} it is (from the fine levels).
 
-\begin{figure}[H]
+\begin{figure}[!htbp]
   \centering
   \figplaceholder[\linewidth]{unet_architecture.pdf}{U-Net: contracting path,
   bottleneck, expanding path with skip connections.}
