@@ -52,7 +52,9 @@ The $\xHI$ and multi-field splits are those of the \texttt{fno-21cm} pipeline. A
 
 \paragraph{Meaning of the neutral-fraction loss.} BCE accepts targets in $[0,1]$, including partially ionized simulation cells; it need not mean that the output is a Bernoulli sample. For deterministic targets it acts as a bounded-fraction regression loss. If the compressed inputs leave some morphology unresolved, both BCE and squared error are minimized pointwise by the conditional mean of the target. BCE alone therefore does not eliminate averaging of uncertain boundaries or produce a distribution of possible fields.
 
-\paragraph{Hyperparameters.} \Cref{tab:hyperparameters} lists the main settings. Every model is a single training run with one seed.
+\paragraph{Hyperparameters.} \Cref{tab:hyperparameters} lists the main settings. Every model is a single training run with seed 0, except for one repeat of the main multi-field configuration with seed 1 (\cref{sec:results-variations}).
+
+\paragraph{Recorded training details of the slice-wise multi-field models.} The run metadata fix the following settings. The optimizer is Adam without weight decay or gradient clipping. Validation runs every 1,000 steps. The learning rate is halved after four validations without a relative improvement of 0.2\%, down to $2\times10^{-5}$; training stops after eight such validations at the minimum rate, but not before 20,000 steps. The checkpoint with the lowest validation score, the mean of the normalized $\xHI$ and $T_b$ mean-squared errors, is kept. The loss is BCE on $\xHI$ plus the normalized $T_b$ MSE with weight 1. Density is divided by 10, $\xHI$ is not rescaled, and $T_b$ is normalized as $(T_b+28.1\,\mathrm{mK})/56.1\,\mathrm{mK}$ with training-set statistics. Per cone, 16 slices are drawn stratified in the global history within $0.02\le\bar x_{\mathrm{HI}}\le0.98$, plus two background slices outside that window, over $5.0\le z\le24.97$. The all-cones cache gives 98,509 training and 3,080 validation slices; the slice-level test set has 3,129 slices from 199 cones.
 
 \begin{table*}[!tp]
   \centering
@@ -129,7 +131,7 @@ The 203\,M-parameter implementation of U-FNO \citep{wen2022ufno} used in the ear
 \subsection{2-D slices: line-of-sight context dominates}
 \label{sec:results-2d}
 
-A sweep around a centre configuration (width 64, 24 modes, six updates) showed that the largest single factor is not a hyperparameter of the operator but the LOS context in the input (\cref{fig:los-context}). With only the target slice, the rhizome reaches a mixed-slice RMSE of 0.174. Adding the six neighbouring slices brings it to 0.138, and adding the band means out to $\pm32$ cells to 0.112, a 36\% reduction in total. By comparison, the other settings matter little: width 128 is 3\% better than width 64 at four times the parameters, 12 or 48 modes are worse than 24, and three or ten updates are slightly worse than six. At equal compute, more training slices beat more width.
+A sweep around a centre configuration (width 64, 24 modes, six updates) showed that the largest single factor is not a hyperparameter of the operator but the LOS context in the input (\cref{fig:los-context}). With only the target slice, the rhizome reaches a mixed-slice RMSE of 0.174. Adding the six neighbouring slices brings it to 0.138, and adding the band means out to $\pm32$ cells to 0.112, a 36\% reduction in total. By comparison, the other settings matter little: width 128 is 3\% better than width 64 at four times the parameters, 12 or 48 modes are worse than 24, and three or ten updates are slightly worse than six in this short sweep. In full-length training of the multi-field model, 3 and 10 updates match 6 within the seed-to-seed spread (\cref{sec:results-variations}). At equal compute, more training slices beat more width.
 
 \begin{figure}[!htbp]
   \centering
@@ -231,7 +233,7 @@ The multi-field models predict $\xHI$ and $T_b$ from density and LOS velocity. F
   \item \textbf{The structured head mainly helps $T_b$}: without it, $T_b$ power is about 10\% low at every stage. It also improves the reionization timing by 15--30\%.
   \item \textbf{The density-only rhizome A0 already beats \texttt{fno}~\texttt{es+histtb}} (0.0567 vs 0.0577), although the latter also receives velocity and both histories.
 \end{itemize}
-On the physical suite, model C beats \texttt{tbs+histtb} by a factor of 5 in $\tau_e$ (0.014 vs 0.076\,$\sigma$), and is closer in $b_1$ (pull 1.52 vs 2.28), $P_\varepsilon$ (0.935 vs 0.793), bubble sizes ($W_1$ 0.71 vs 1.21\,Mpc) and front width (4.53 vs 6.17\,Mpc; truth 2.77). Before reionization, \texttt{fno} adds spurious small-scale $T_b$ structure ($+12.8\sigma$ against $+3.9\sigma$).
+On the physical suite, model C at 20 epochs, before the warm restart, beats \texttt{tbs+histtb} by a factor of 5 in $\tau_e$ (0.014 vs 0.076\,$\sigma$), and is closer in $b_1$ (pull 1.52 vs 2.28), $P_\varepsilon$ (0.935 vs 0.793), bubble sizes ($W_1$ 0.71 vs 1.21\,Mpc) and front width (4.53 vs 6.17\,Mpc; truth 2.77). Before reionization, \texttt{fno} adds spurious small-scale $T_b$ structure ($+12.8\sigma$ against $+3.9\sigma$). After the warm restart, model C improves further; that checkpoint is used in \cref{tab:main-results} ($\tau_e$ 0.012\,$\sigma$, $b_1$ pull 1.35, $P_\varepsilon$ 0.945, $W_1$ 0.69\,Mpc, front width 4.38\,Mpc).
 
 \paragraph{Influence of the loss on the performance gap.} Both model families receive the same emulated global history, yet the global $\bar x_{\mathrm{HI}}(z)$ of the \texttt{fno} models sits 0.002--0.003 too low from $z\approx8$ to 25. In truly neutral cells at $z>15$ the mean error is $-0.0020$ and $-0.0030$ for the two \texttt{fno} runs against $-0.00006$ for the rhizome. A plausible contributor is the loss. For a neutral-fraction logit $\ell$, prediction $p=\mathrm{sigmoid}(\ell)$ and target $y$, $\partial_\ell\mathcal L_{\mathrm{BCE}}=p-y$, whereas a squared-error loss gives $2(p-y)p(1-p)$. Both approach zero at a correct saturated prediction, but squared error has an additional sigmoid factor that slows correction near the endpoints. This is consistent with the observed neutral-cell offset; a loss-matched retraining is needed to establish its contribution. This uniform offset integrates into a $\tau_e$ bias. A fair comparison of $\tau_e$ and the global history therefore needs the \texttt{fno} models retrained with BCE. The offset alone does not establish an explanation for the morphology differences; the effect of changing the loss on those metrics also needs to be measured.
 
@@ -264,7 +266,7 @@ The slice-wise variant (\cref{fig:slicewise}) applies the 2-D model to every sli
   \end{tabular}
 \end{table*}
 
-The slice-wise model wins on nearly every physical metric, trains about seven times faster than the 3-D rhizome, and has no jitter between slices: the roughness from slice to slice matches the truth to 2--3\%, while both 3-D models are slightly over-smoothed along the LOS. Its advantage comes from front \emph{placement}: small-scale incoherence drops from 0.20 to 0.12, the mid-scale power error by 60\%, and the edge error by 21\% (significant in a paired bootstrap over 175 cones). Width barely matters, so width 64 (2.8\,h of training against 5.0\,h) is the choice. Per cone, the 2-D model wins 11 of 13 inspected cones. It loses on the earliest reionizer, cone 27 ($z_{\mathrm{mid}}\approx15.9$), where the longer context of the 3-D model helps slightly.
+The slice-wise model wins on nearly every physical metric, trains about seven times faster than the 3-D rhizome, and has no jitter between slices: the roughness from slice to slice matches the truth to 2--3\%, while both 3-D models are slightly over-smoothed along the LOS. Its advantage comes from front \emph{placement}: small-scale incoherence drops from 0.20 to 0.12, the mid-scale power error by 60\%, and the edge error by 21\% (significant in a paired bootstrap over cones: 2,000 resamples of the per-cone differences, 95\% percentile interval). The edge metrics use 175 of the 200 test cones: in the other 25, which reionize late, no cell falls below $\xHI=0.5$ before $z=5$, so there is no front to measure. Width barely matters, so width 64 (2.8\,h of training against 5.0\,h) is the choice. Per cone, the 2-D model wins 11 of 13 inspected cones. It loses on the earliest reionizer, cone 27 ($z_{\mathrm{mid}}\approx15.9$), where the longer context of the 3-D model helps slightly.
 
 The error maps in \cref{fig:slicewise-errors} show the qualitative difference. The slice-wise errors are thin rims along bubble walls, whereas the 3-D models, \texttt{fno} strongly and the 3-D rhizome weakly, miss whole ionized regions, and \texttt{fno} leaves a faint ionized haze over neutral gas.
 
@@ -285,7 +287,7 @@ The final model combines the slice-wise approach with the multi-field inputs and
 
 \begin{table*}[!tp]
   \centering
-  \caption{Main results, 199 multi-field test cones (medians). ``Slice-wise'' is the multi-field slice-wise 2-D rhizome trained on all cones; ``+ $T_b$ power'' adds the power term of \cref{sec:results-absorption}. Best value per row in bold.}
+  \caption{Main results, 199 multi-field test cones (medians). ``Slice-wise'' is the multi-field slice-wise 2-D rhizome trained on all cones; ``+ $T_b$ power'' adds the power term of \cref{sec:results-absorption}. 3-D rhizome C is the checkpoint after the warm restart. Best value per row in bold.}
   \label{tab:main-results}
   \small
   \setlength{\tabcolsep}{4pt}
@@ -398,6 +400,46 @@ Applying the same term to $\xHI$ as well roughly halves the high-$k$ $\xHI$ powe
 A further third of the absorption-era $T_b$ error is a constant offset per slice, of random sign from cone to cone. Its size (1.6--2.0\,mK RMS) is nearly the same for all three model families and comparable to the error of the global-history emulator that provides the $\bar T_b(z)$ input (about 2.1\,mK). The similar error scales suggest that the history input may limit this component. Testing with true rather than emulated histories would separate that effect from model error. The power loss acts only on fluctuations and leaves the offset unchanged.
 
 % ---------------------------------------------------------------------
+\subsection{Controlled variations of the slice-wise model}
+\label{sec:results-variations}
+
+To separate components of the final model, the plain multi-field slice-wise configuration was retrained from scratch with one change at a time: a second seed, the number of updates, the interaction kernel, and the history inputs. Data, splits, losses, stopping rule and evaluation are the same as for the reference run (\cref{tab:variations}). The variants were trained with a later code version whose additions are inactive at these settings; the seed-1 run uses that same version. The kernel variants replace the global spectral kernel by a \emph{compact} real-space kernel supported on a disc of radius $R$ cells. All gates, the recurrence and the pointwise maps are kept. After $\Niter=6$ updates, information can then travel at most $6R$ cells. The rank-16 variant factorizes the channel mixing of the compact kernel.
+
+\begin{table*}[!tp]
+  \centering
+  \caption{Controlled variations of the multi-field slice-wise model (width 64, all training cones, plain loss). The reference uses the spectral kernel with 24 modes, 6 updates and seed 0; each other row changes one setting and is retrained from scratch. Test RMSE on 3,129 held-out slices from 199 test cones; $\Delta$ relative to the seed-0 reference. Reach: largest distance information can travel in six updates. $P$ error: mean squared log ratio of the transverse power spectrum, predicted to true, in eight bins above $k=0.3\,\mathrm{Mpc}^{-1}$ (not recorded for the reference run). Training time on one A100, including validation.}
+  \label{tab:variations}
+  \footnotesize
+  \setlength{\tabcolsep}{4pt}
+  \begin{tabular}{@{}lrrrrrr@{}}
+    \toprule
+    Variant & Params & Reach & Time (h) & $\xHI$ RMSE ($\Delta$) & $T_b$ RMSE, mK ($\Delta$) & $P$ error $T_b$ / $\xHI$ \\
+    \midrule
+    reference (seed 0) & 4.57\,M & global & 3.6 & 0.0872 & 7.71 & -- \\
+    second seed (seed 1) & 4.57\,M & global & 3.1 & 0.0873 ($+0.2\%$) & 7.82 ($+1.3\%$) & 0.385 / 0.392 \\
+    3 updates & 4.57\,M & global & 2.2 & 0.0866 ($-0.6\%$) & 7.68 ($-0.5\%$) & 0.395 / 0.385 \\
+    10 updates & 4.57\,M & global & 4.9 & 0.0869 ($-0.3\%$) & 7.66 ($-0.7\%$) & 0.378 / 0.355 \\
+    \midrule
+    compact kernel, $R=1$ & 66\,k & 8.6\,Mpc & 2.8 & 0.1209 ($+38.7\%$) & 9.76 ($+26.5\%$) & 0.511 / 0.449 \\
+    compact kernel, $R=2$ & 99\,k & 17\,Mpc & 3.8 & 0.1089 ($+24.9\%$) & 8.85 ($+14.7\%$) & 0.424 / 0.398 \\
+    compact kernel, $R=3$ & 164\,k & 26\,Mpc & 4.4 & 0.1010 ($+15.9\%$) & 8.27 ($+7.3\%$) & 0.424 / 0.402 \\
+    compact kernel, $R=4$ & 246\,k & 34\,Mpc & 5.2 & 0.0972 ($+11.5\%$) & 8.10 ($+5.1\%$) & 0.417 / 0.385 \\
+    compact kernel, $R=6$ & 508\,k & 51\,Mpc & 7.7 & 0.0951 ($+9.1\%$) & 8.13 ($+5.4\%$) & 0.444 / 0.437 \\
+    compact kernel, $R=8$, rank 16 & 51\,k & 69\,Mpc & 4.6 & 0.0926 ($+6.3\%$) & 8.04 ($+4.2\%$) & 0.444 / 0.434 \\
+    \midrule
+    no $\bar x_{\mathrm{HI}}(z)$ history input & 4.57\,M & global & 3.7 & 0.0973 ($+11.7\%$) & 8.26 ($+7.1\%$) & 0.399 / 0.431 \\
+    no $\bar T_b(z)$ history input & 4.57\,M & global & 3.9 & 0.0900 ($+3.3\%$) & 8.04 ($+4.3\%$) & 0.341 / 0.400 \\
+    \bottomrule
+  \end{tabular}
+\end{table*}
+
+\paragraph{Seed and rollout length.} The second seed differs from the reference by 0.2\% in $\xHI$ and 1.3\% in $T_b$ RMSE. This is the only direct estimate of training noise in this report, and it suggests that differences of one or two percent between single runs should not be interpreted. Three and ten updates match six within that spread. Three updates train in 2.2\,h instead of 3.6\,h. Between 3 and 10 updates, the rollout length is therefore not a sensitive setting on this task. This differs from the toy pilot of \cref{tab:rhizome-pilot}, where 1 or 2 updates were clearly worse, but there each update count was evaluated without retraining.
+
+\paragraph{Global reach of the kernel.} Every compact kernel is worse than the spectral kernel, and the error falls steadily as the reach grows: from $+39\%$ in $\xHI$ at 8.6\,Mpc to $+6\%$ at 69\,Mpc. The compact kernels also have 9--90 times fewer parameters, so reach and capacity change together. Within the compact family, however, the error follows reach rather than parameter count: the rank-16 kernel with $R=8$ has the fewest parameters (51\,k) and the smallest error, while $R=6$ with ten times more parameters is worse. The compact kernels are not cheaper to train on an A100 either, because wide direct convolutions are slower than the FFT (7.7\,h at $R=6$). These runs support the global-reach design principle of \cref{sec:rhizome-principles}. Since every compact variant keeps the gates, they do not measure the value of the gates.
+
+\paragraph{Global-history inputs.} Both histories were removed in turn from the scalar inputs. Paired over the 199 full test cones, removing the $\xHI$ history raises the median per-cone RMSE by 12.6\% in $\xHI$ (95\% bootstrap interval 11.5--14.5\%) and by 11.3\% in $T_b$; it is worse on 91\% and 93\% of the cones. The error of the global history $\bar x_{\mathrm{HI}}(z)$ grows by 38\%. Removing the $T_b$ history raises the median per-cone $T_b$ error by 26.6\% (interval 19.7--31.2\%), and by 46\% before reionization. Its $\xHI$ error rises by 6.1\%. Both changes are far larger than the seed spread. They agree with the 3-D ablation of \cref{tab:results-3d-mf}: the emulated histories carry information that the local density bands do not. One effect goes the other way: without the $T_b$ history the slice-level $T_b$ power error is lower (0.341 against 0.378--0.395), so the history input improves per-voxel accuracy but not the small-scale fluctuation amplitude.
+
+% ---------------------------------------------------------------------
 \subsection{Learned spectral weights}
 \label{sec:results-modes}
 
@@ -409,6 +451,23 @@ Neural networks tend to learn low frequencies first, and a Fourier layer can end
   \caption{Per-mode RMS of the learned Fourier kernel relative to initialization. Radial profiles over wavenumber; they are flat to the band edge: there is no collapse onto low frequencies.}
   \label{fig:mode-weights}
 \end{figure*}
+
+% ---------------------------------------------------------------------
+\subsection{Learned gates on 21\,cm slices}
+\label{sec:results-gates}
+
+\Cref{fig:mechanism} inspects the gates of a toy model. The same analysis was repeated on the trained multi-field slice-wise model, averaged over 120 test slices with $0.1\le\bar x_{\mathrm{HI}}\le0.9$, one per cone. Receiver cells are classified with the true field: 3,808 cells on ionization fronts, and 1,920 and 1,489 cells deep inside neutral and ionized regions. For each receiver $i$ and update $t$, the re-weighting $M_t(j)$ of \cref{fig:mechanism} is averaged radially in $|r_i-r_j|$ (\cref{fig:mf-gates}).
+
+\begin{figure*}[!tp]
+  \centering
+  \figplaceholder[0.82\linewidth]{rhizome/mf_gate_gain_receiver.png}{Gate gain and receiver gate per update.}
+  \caption{Gates of the trained multi-field slice-wise model on 120 test slices, by receiver class and update. \emph{Left:} mean gain $\langle M_t\rangle_j$ of the incoming connections. \emph{Right:} channel-RMS receiver gate $\norm{A_i}_{\mathrm{rms}}$. Solid: plain model; dashed: model trained with both power terms (\cref{sec:results-absorption}). Gains on the transmitted value, not output sensitivities.}
+  \label{fig:mf-gates}
+\end{figure*}
+
+\paragraph{The gates depend on the state.} The receiver gate separates the phases, and the separation grows during the rollout. In the plain model, the channel-RMS receiver gate of ionized-interior cells rises from 0.34 to 0.46 over the six updates, while that of neutral-interior cells falls from 0.26 to 0.15 and that of front cells from 0.25 to 0.17. At the last update ionized cells accept about three times more of the incoming message than neutral ones. The source gates stay close to one (channel RMS 0.81--0.97 on four inspected slices), so, as in the toy model, the receiver dominates. The gates do not merely rescale: the radial profile of the re-weighting also changes. For front receivers, the boosted region contracts from a half-width of 26\,Mpc at the first update to 14\,Mpc at the last, with a peak boost of $2.0\times$ at 3.6\,Mpc; for neutral-interior receivers it contracts from 28 to 5\,Mpc. For ionized-interior receivers it stays broad (25 to 24\,Mpc). Beyond 40\,Mpc the re-weighting is flat for all classes. On four single slices, the normalized shape of the effective connection map into a front cell changes by 25--30\% between the first and last update, against about 4\% in the toy model. The model trained with both power terms has larger receiver gates and concentrates its re-weighting more strongly, within about 1\,Mpc of the receiver ($3.5\times$ at fronts).
+
+\paragraph{What this does and does not show.} The trained gates are clearly state dependent: they distinguish ionized from neutral cells, and the connections they produce change over the rollout, mostly by narrowing towards nearby sources in neutral and front cells. This is a description of the learned mechanism, not a measurement of its value. A model with gates computed once from the initial state, or without gates, could reach the same accuracy by other means, and $M_t$ measures gains on the transmitted value rather than influence on the output.
 
 % ---------------------------------------------------------------------
 \subsection{Cost}
@@ -429,7 +488,7 @@ At inference, a full multi-field cone takes 5.5\,s end to end on an A100 and 3.7
 \subsection{Ablations}
 \label{sec:ablations}
 
-\Cref{tab:ablations} collects what each design and training choice was worth across the experiments above. The table includes controlled changes as well as comparisons of model configurations. All training runs use a single seed; the 2-D/3-D comparison changes several architectural and numerical choices together.
+\Cref{tab:ablations} collects what each design and training choice was worth across the experiments above. The table includes controlled changes as well as comparisons of model configurations. All training runs use a single seed, except one seed repeat of the main configuration, which differs by 0.2\% ($\xHI$) and 1.3\% ($T_b$) in test RMSE. The 2-D/3-D comparison changes several architectural and numerical choices together.
 
 \begin{table*}[!tp]
   \centering
@@ -452,11 +511,20 @@ At inference, a full multi-field cone takes 5.5\,s end to end on an A100 and 3.7
     LOS context $\pm128$ vs $\pm32$ & per-voxel RMSE & little reported change; duration $-37\%$; absorption $T_b$ worse \\
     $T_b$ power loss & pre-reion.\ $T_b$ power dev. & $+24.8\sigma\to+1.5\sigma$; RMSE $+4$ to $+8\%$ \\
     $+\,\xHI$ power loss & high-$k$ $\xHI$ power error & $-45\%$; RMSE further $+2$ to $+4\%$ \\
+    \midrule
+    \multicolumn{3}{@{}l}{\emph{Slice-wise multi-field model, retrained (\cref{sec:results-variations})}} \\
+    second seed & test RMSE $\xHI$ / $T_b$ & $+0.2\%$ / $+1.3\%$ (seed spread) \\
+    3 or 10 updates instead of 6 & test RMSE $\xHI$ / $T_b$ & $-0.3$ to $-0.6\%$ / $-0.5$ to $-0.7\%$ (within seed spread) \\
+    compact kernel, reach 8.6--69\,Mpc, vs spectral & test RMSE $\xHI$ / $T_b$ & $+39\%$ to $+6\%$ / $+27\%$ to $+4\%$ (worse; shrinks with reach) \\
+    remove $\bar x_{\mathrm{HI}}(z)$ history & median per-cone RMSE $\xHI$ / $T_b$ & $+12.6\%$ / $+11.3\%$ (worse) \\
+    remove $\bar T_b(z)$ history & median per-cone RMSE $\xHI$ / $T_b$ & $+6.1\%$ / $+26.6\%$ (worse) \\
     \bottomrule
   \end{tabular}
 \end{table*}
 
-One planned ablation has not yet been run: a controlled study of the gate mechanism itself. It compares the full rhizome with six otherwise identical arms (no gates, source-only, receiver-only, gates computed from the conditioning only, gates computed once from the initial state, and static per-channel gates), five seeds each, all retrained from scratch. Until then, the comparison with \texttt{fno} establishes that the rhizome \emph{as a whole} works better on this task, but not how much of the gain is due to the state-dependent gating specifically, as opposed to the recurrence, the loss and the LOS input.
+\paragraph{What the variations establish about the operator.} The retrained variations of \cref{sec:results-variations} isolate three components of the operator. The global reach of the kernel matters: no compact kernel up to 69\,Mpc reach matches the spectral kernel. The rollout length matters little between 3 and 10 updates. The history inputs carry information the operator cannot recover from the density bands. \Cref{sec:results-gates} shows that the trained gates are state dependent and change over the rollout.
+
+\paragraph{What remains open.} None of these runs removes or freezes the gates, so the accuracy contribution of the state-dependent gating is still not measured. The planned study compares the full rhizome with six otherwise identical arms (no gates, source-only, receiver-only, gates computed from the conditioning only, gates computed once from the initial state, and static per-channel gates), five seeds each, all retrained from scratch. With the seed spread now measured at 1--2\%, the primary contrast, full against initial-state gates, needs differences well above that level to be interpretable. Until then, the comparison with \texttt{fno} establishes that the rhizome \emph{as a whole} works better on this task, and the variations attribute part of that to the global kernel and the inputs, but not to the state-dependent gating specifically.
 
 % ---------------------------------------------------------------------
 \subsection{Discussion}
@@ -468,10 +536,10 @@ One planned ablation has not yet been run: a controlled study of the gate mechan
 
 \paragraph{Scope of the evidence.} The targets are semi-numerical lightcones from one simulation suite with repeated periodic boxes. Accuracy on those targets does not by itself establish agreement with resolved radiative transfer, unseen cosmologies, another box size or observational inference. The emulator is deterministic and has no calibrated field uncertainty. Power spectra, morphology diagnostics and optical-depth errors assess different aspects of agreement, but do not replace a downstream inference test.
 
-\paragraph{Reproducibility details still needed.} Before treating this report as a complete methods paper, the simulation-parameter ranges and sampling law, seed policy, split identifiers, input and target normalization, optimizer and weight decay, loss weights, history-emulator training split, and precise metric definitions should be recorded. The history inputs need an explicit provenance check showing that test-cone targets were not used to fit or select the emulator. LOS padding length must be distinguished from core and halo lengths. The meaning of the quoted $\sigma$ and $b_1$ pulls, the partially ionized thresholds, and power-bin boundaries also need to be specified. These are missing documentation or checks, not assumptions supplied by this revision.
+\paragraph{Reproducibility details still needed.} The optimizer, stopping rule, normalization, loss weights and slice sampling of the slice-wise models are now recorded in \cref{sec:training}. Before treating this report as a complete methods paper, the simulation-parameter ranges and sampling law, split identifiers, the corresponding settings of the 3-D models, history-emulator training split, and precise metric definitions should also be recorded. The history inputs need an explicit provenance check showing that test-cone targets were not used to fit or select the emulator. LOS padding length must be distinguished from core and halo lengths. The meaning of the quoted $\sigma$ and $b_1$ pulls, the partially ionized thresholds, and power-bin boundaries also need to be specified. These are missing documentation or checks, not assumptions supplied by this revision.
 
-\TODO{Reconcile the 3-D model-C physical-suite numbers quoted in \cref{sec:results-3d-mf} with \cref{tab:main-results}, or identify the differing checkpoint, subset or aggregation. Explain why the paired-bootstrap example uses 175 cones rather than the 200-cone test set, and specify its interval and resampling unit. Record whether the test comparisons informed the choice of context, loss weights or checkpoints.}
+\TODO{Record whether the test comparisons informed the choice of context, loss weights or checkpoints.}
 
-\paragraph{Caveats.} Several confounds remain. All results are single seeds, and differences of a few percent (for example A against A0) may be partly noise. Part of the advantage in $\tau_e$ and the global history comes from training with BCE rather than from the operator, and the \texttt{fno} models should be retrained with BCE to separate the two. The contribution of the gating itself has not been isolated (\cref{sec:ablations}). Finally, all results are at one resolution; the grid-independence of the parameters has not been put to the test.
+\paragraph{Caveats.} Several confounds remain. Nearly all results are single seeds. A repeat of the main slice-wise configuration differs by 0.2--1.3\% in test RMSE, so differences of a few percent (for example A against A0, which is a 3-D run with its own noise level) may be partly noise. Part of the advantage in $\tau_e$ and the global history comes from training with BCE rather than from the operator, and the \texttt{fno} models should be retrained with BCE to separate the two. The contribution of the gating itself has not been isolated (\cref{sec:ablations}), although the trained gates are demonstrably state dependent (\cref{sec:results-gates}). Finally, all results are at one resolution; the grid-independence of the parameters has not been put to the test.
 
 
