@@ -24,14 +24,14 @@
     Haris Kapetanovic\par
     \vspace{14pt}
   \end{flushleft}
-  \hspace{0.12\textwidth}%
+  \noindent\hfill%
   \begin{minipage}{0.88\textwidth}
     \small
-    \textbf{Abstract}\par\vspace{3pt}
-    Neural operators such as the Fourier Neural Operator (FNO) learn maps between function spaces efficiently, but their kernels are global, stationary and band-limited, which makes sharp, localized structure such as the ionization fronts of the epoch of reionization hard to represent. Multi-scale hybrids like the U-Net and U-FNO recover local detail at the cost of resolution independence, and still use a fixed communication pattern. This report introduces the \emph{rhizome neural operator}, a recurrent integral operator whose connections depend on the state of the field. A learned kernel, evaluated with the FFT, is modulated at every update by per-cell source and receiver gates computed from the current hidden state, so that the effective kernel is state-dependent at the cost of a single Fourier layer. On \texttt{21cmFAST} lightcones, the rhizome outperforms the best models of an existing FNO-based pipeline on every task tested: 3-D $x_{\mathrm{HI}}$ (test RMSE 0.059 against 0.068) and joint $x_{\mathrm{HI}}$ and 21\,cm brightness temperature (0.050 / 5.8\,mK against 0.056 / 6.5\,mK). Its margin is largest on physical observables. A 2-D variant that sees $\pm32$ cells of line-of-sight context and is applied slice by slice beats the native 3-D models on the same data. It halves the error in bubble sizes and in the field-level bias, sharpens ionization fronts from 6.2 to 3.9\,Mpc, and predicts a full cone in under 6\,s. A small-scale power term in the loss removes its one weakness, excess $T_b$ structure before reionization.\par
+    {\centering\textbf{Abstract}\par}\vspace{3pt}
+    We study a recurrent neural integral operator for predicting neutral-fraction and 21\,cm brightness-temperature fields from \texttt{21cmFAST} lightcones. A learned convolution is multiplied by channel-wise source and receiver gates computed from the current hidden field at each update. This factorization makes the effective interaction depend on the field while retaining FFT evaluation and $\mathcal{O}(N\log N)$ spatial cost at fixed width and mode count. We describe its continuum form, discrete evaluation and restrictions, including the distinction between bounded hidden states and convergence. In the reported single-seed experiments, the 3-D rhizome reaches a neutral-fraction test RMSE of 0.059 against 0.068 for the existing FNO-based pipeline; with joint prediction, the errors are 0.050 and 5.8\,mK against 0.056 and 6.5\,mK. A slice-wise 2-D model with $\pm32$ cells of LOS context improves morphology further. The best multi-field model, trained on a larger set of cones, reduces bubble-size error from 1.21 to 0.56\,Mpc and front width from 6.17 to 3.89\,Mpc, and predicts a full cone in 5.5\,s on an A100. Adding a brightness-temperature power loss suppresses excess small-scale power before reionization at a 4--8\% cost in per-voxel RMSE. These results support the complete prediction pipeline; the separate contribution of evolving-state gates remains to be established by controlled ablations.\par
     \vspace{8pt}
     \textbf{Keywords:} neural operators, Fourier neural operator, operator learning, 21\,cm cosmology, epoch of reionization, emulation
-  \end{minipage}
+  \end{minipage}\hfill\null\par
   \vspace{16pt}
 }]
 \thispagestyle{plain}

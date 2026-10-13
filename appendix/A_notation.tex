@@ -12,12 +12,12 @@
     \midrule
     \multicolumn{2}{@{}l}{\emph{Operator learning}} \\
     $f,\ g$                   & input and output functions \\
-    $\U,\ \V$                 & input and output function spaces \\
-    $D$                       & spatial domain; $N$ number of grid points \\
+    $\A,\ \U$                 & input and output function spaces \\
+    $D,\ N$                   & spatial domain and total grid-cell count \\
     $\kappa(r,r',\theta)$     & kernel of an integral operator \\
     $\F,\ \Finv$              & Fourier transform and inverse \\
     $R_\phi(k)$               & learned Fourier coefficients of the kernel (FNO) \\
-    $\kmax$                   & number of retained Fourier modes \\
+    $\kmax,\ \Lambda$           & mode-count setting and retained index set \\
     $\dv$                     & channel width \\
     $P,\ Q,\ W,\ \sigma$      & lifting, projection, pointwise linear path, nonlinearity \\
     \midrule
@@ -27,7 +27,7 @@
     $\Vval$                   & value map \\
     $\kernel,\ R(k)$          & base spatial kernel and its Fourier coefficients \\
     $\kappa^{\mathrm{eff}}_t$ & effective, state-dependent kernel at update $t$ \\
-    $\Niter,\ \Delta t$       & number of updates (6), step size (0.5) \\
+    $\Niter,\ \Delta t$       & computational updates (6), step size (0.5) \\
     \midrule
     \multicolumn{2}{@{}l}{\emph{21\,cm physics and evaluation}} \\
     $\xHI$                    & neutral hydrogen fraction; $\bar x_{\mathrm{HI}}$ its global mean \\

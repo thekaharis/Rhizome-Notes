@@ -3,36 +3,36 @@
 \label{sec:spatial-structure}
 % =====================================================================
 
-\Cref{sec:fno-limitations} showed that the FNO represents a field through global, stationary, band-limited modes plus a pointwise map. By \emph{spatial structure} we mean everything this leaves out: locality (interactions that are strong between nearby points and weak between distant ones), an explicit hierarchy of scales, and interactions whose strength depends on where in the field they happen. Reionization fields need all three. Ionized bubbles span sizes from a few cells to a sizeable fraction of the box, their boundaries are sharp on the grid scale, and whether two regions interact depends on the ionization state between them. This section reviews how existing architectures build in such structure, with the U-Net as the main example, and identifies what none of them provide.
+Ionized bubbles span a wide range of sizes, while their boundaries can be sharp on the grid scale. This motivates three useful architectural choices: local interactions, a hierarchy of scales, and explicit modulation by the field. Existing models address these in different ways. This section reviews the U-Net and U-FNO before introducing the particular combination used by the rhizome.
 
 % ---------------------------------------------------------------------
 \subsection{Inductive biases: locality, scale and stationarity}
 \label{sec:inductive-biases}
 
-Each layer of a neural operator can be written in the kernel form of \cref{eq:kernel-integral}. Architectures differ mainly in which kernels $\kappa(r,r',\theta)$ they allow, and these restrictions are their inductive biases. Three properties are useful for comparing them.
+The spatial interaction in a neural-operator layer can often be written as a kernel integral, with pointwise maps around it. Restrictions on this interaction determine some of the architecture's inductive biases. Three properties are useful for comparison.
 
 \paragraph{Receptive field.} A convolutional neural network (CNN) uses kernels with compact support of a few grid cells, $\kappa(r-r')=0$ for $\abs{r-r'}$ larger than the stencil. A single layer is therefore strictly local; the receptive field grows only linearly with depth. The FNO is the opposite extreme: every Fourier layer couples every point to every other point.
 
 \paragraph{Scale.} A plain CNN or FNO processes the field at one resolution. Neither has a built-in notion of coarse and fine scales; scale-dependent behaviour has to be learned implicitly. Multi-scale architectures instead process the field at several resolutions and combine the results, so that large-scale context and small-scale detail are handled by separate parts of the network.
 
-\paragraph{Stationarity and state dependence.} CNNs, FNOs and U-Nets all use kernels that depend only on $r-r'$: the same filter is applied everywhere, and the coupling between two points is fixed once training ends. Attention mechanisms \citep{vaswani2017attention} and graph kernel networks \citep{li2020graph} relax this by letting the kernel depend on the features at $r$ and $r'$, so that the coupling becomes \emph{state-dependent}. The price is cost: a dense state-dependent kernel requires $\mathcal{O}(N^2)$ operations, which is prohibitive for three-dimensional grids with $N\sim10^{7}$ cells.
+\paragraph{Stationarity and state dependence.} Convolutional filters and standard Fourier multipliers are fixed after training. Their surrounding nonlinearities still make the complete network's response depend on the input. Attention \citep{vaswani2017attention} and graph kernel networks \citep{li2020graph} put feature dependence directly into the interaction weights. Dense pairwise evaluation costs $\mathcal{O}(N^2)$ at fixed width, but this is not a lower bound for state dependence: sparse graph interactions and factorized or linear attention reduce that cost \citep{katharopoulos2020linear}. The rhizome uses a convolution with separable endpoint gates.
 
 \Cref{tab:inductive-biases} summarizes these properties for the architectures discussed in this report.
 
 \begin{table*}[!tp]
   \centering
-  \caption{Inductive biases of the operator architectures discussed in this report.}
+  \caption{Spatial interactions in the architectures discussed here. ``Fixed'' refers to the learned linear filters, not to the full nonlinear response. Costs hold at fixed width; pooling and boundaries can break exact translation equivariance.}
   \label{tab:inductive-biases}
   \begin{tabular}{lcccc}
     \toprule
-    Architecture & Receptive field & Stationary & Multi-scale & State-dependent \\
+    Architecture & Receptive field & Base filter & Scale hierarchy & Explicit gates \\
     \midrule
-    CNN          & local, grows with depth   & yes & no  & no \\
-    FNO          & global (band-limited)     & yes & no  & no \\
-    U-Net        & local $\to$ wide via pooling & yes & yes & no \\
-    U-FNO        & global + multi-scale local & yes & yes & no \\
-    Attention    & global                    & no  & no  & yes, $\mathcal{O}(N^2)$ \\
-    Rhizome      & global                    & no (gated) & implicit & yes, $\mathcal{O}(N\log N)$ \\
+    CNN          & local, grows with depth   & fixed & no  & no \\
+    FNO          & global spectral path     & fixed & no  & no \\
+    U-Net        & local $\to$ wide via pooling & fixed & yes & no \\
+    U-FNO        & global + multi-scale local & fixed & yes & no \\
+    Dense attention & global                  & adaptive & no & $\mathcal{O}(N^2)$ \\
+    Rhizome      & global                    & fixed + gates & no & $\mathcal{O}(N\log N)$ \\
     \bottomrule
   \end{tabular}
 \end{table*}
@@ -50,7 +50,7 @@ The U-Net \citep{ronneberger2015unet} was introduced for biomedical image segmen
 \end{equation}
 where each $C_s$ is a block of $3\times3$ convolutions with nonlinearities. The number of channels is typically doubled at each level, so the network trades spatial resolution for feature richness. Because every level operates on a grid that is coarser by a factor of two, a $3\times3$ convolution at level $s$ spans $3\cdot2^{s}$ cells of the original grid. The receptive field therefore grows exponentially with the number of levels instead of linearly with depth.
 
-\paragraph{Bottleneck.} At the coarsest level, $e_S$, the field is represented on a grid of $N/2^{S}$ points per dimension with many channels. Here a few convolutions see a large fraction of the domain and capture large-scale context.
+\paragraph{Bottleneck.} At the coarsest level, $e_S$, the field is represented on a grid of $n/2^{S}$ points per dimension, where $n$ is the original side length with many channels. Here a few convolutions see a large fraction of the domain and capture large-scale context.
 
 \paragraph{Expanding path and skip connections.} The decoder upsamples step by step and, at each level, concatenates the upsampled features with the encoder features of the same resolution:
 \begin{equation}
@@ -67,9 +67,9 @@ and a final $1\times1$ convolution maps $d_0$ to the output $u$. The skip connec
   \label{fig:unet}
 \end{figure}
 
-\paragraph{Why it captures sharp structure.} The U-Net addresses each limitation identified in \cref{sec:fno-limitations}. Its finest levels operate on the full grid with local kernels, so edges can be represented directly in physical space instead of through a truncated set of global modes. Its intermediate levels give it receptive fields at every scale between a few cells and the full box, which matches the broad range of bubble sizes. Finally, skip connections let high-frequency detail bypass the bottleneck entirely. U-Nets are therefore strong baselines for field-to-field emulation whenever sharp, localized features matter.
+\paragraph{Why it captures sharp structure.} The U-Net provides an explicit hierarchy of local receptive fields. Its finest levels operate on the full grid with local kernels, so edges can be represented directly in physical space instead of through a truncated set of global modes. Its intermediate levels give it receptive fields at every scale between a few cells and the full box, which matches the broad range of bubble sizes. Finally, skip connections let high-frequency detail bypass the bottleneck entirely. U-Nets are therefore strong baselines for field-to-field emulation whenever sharp, localized features matter.
 
-\paragraph{Limitations.} The price is the loss of the properties that made the FNO attractive. The convolution kernels are defined in units of grid cells, not physical length, so changing the resolution changes the physical scale each filter responds to: the U-Net is not discretization invariant, and a model trained at one resolution cannot be reused at another. The number of pooling steps also fixes which grid sizes are admissible (multiples of $2^{S}$). Global context is only available at the bottleneck and only at coarse resolution, so long-range interactions are approximated rather than represented exactly. And the U-Net is still stationary: the same filters are applied everywhere, independent of the local state of the field.
+\paragraph{Limitations.} The convolution kernels are defined in grid cells, so their physical support changes with resolution. A fully convolutional U-Net can often run on a different grid size, with padding where needed, but this does not make it a consistent discretization of the same physical operator. Pooling also introduces alignment dependence, so exact equivariance to arbitrary one-cell shifts is generally lost. Large-scale context passes through coarse features; whether this is sufficient depends on the task. The linear filters are shared spatially, while the nonlinear response remains input-dependent.
 
 % ---------------------------------------------------------------------
 \subsection{Hybrid architectures: U-FNO and related}
@@ -82,16 +82,16 @@ The complementary strengths of the FNO (global, resolution-independent) and the 
 \end{equation}
 where $\mathrm{UNet}_\ell$ denotes the U-Net path. The spectral path supplies global, low-$k$ structure, while the U-Net path restores the high-$k$, localized detail that mode truncation removes. In the original application to multiphase flow, where saturation fronts are sharp, this substantially improved accuracy over the plain FNO \citep{wen2022ufno}.
 
-The improvement comes at a cost that matters when comparing architectures. The U-Net path adds a large number of parameters, and a U-FNO is typically much larger than an FNO of the same width and depth. In our own comparison (\cref{sec:results}), the U-FNO reference model has roughly two orders of magnitude more parameters than the matched models. Better accuracy can therefore not be attributed to the architecture alone. We treat the U-FNO as a dense reference baseline and make architectural claims only between parameter-matched models. The U-FNO also inherits the U-Net's resolution dependence through its convolutional path, and remains stationary.
+The improvement comes at a cost that matters when comparing architectures. The U-Net path adds a large number of parameters, and a U-FNO is typically much larger than an FNO of the same width and depth. In our own comparison (\cref{sec:results}), the U-FNO reference model has roughly two orders of magnitude more parameters than the matched models. Better accuracy can therefore not be attributed to the architecture alone. We treat that implementation as a dense reference baseline. Parameter matching alone is not enough to isolate architecture: inputs, losses, optimization and compute also need to be controlled. The convolutional path introduces cell-scale dependence into the U-FNO, even though its Fourier multipliers can be reused across grids.
 
-Other hybrids follow the same pattern of adding a local or multi-scale branch next to a global spectral one. They differ in which branch is used and where it is inserted, but they share the structure of \cref{eq:ufno-layer}: a sum of fixed, stationary operators.
+Other hybrids follow the same pattern of adding a local or multi-scale branch next to a global spectral one. They differ in which branch is used and where it is inserted, but they combine spatial branches with fixed learned filters and nonlinear maps, as in \cref{eq:ufno-layer}.
 
 % ---------------------------------------------------------------------
 \subsection{Open problem: structure that adapts to the field}
 \label{sec:adaptive-structure}
 
-All architectures above, apart from attention, share one property: the communication pattern between points is fixed once training is done. Whether a kernel is local or global, single- or multi-scale, the coupling between $r$ and $r'$ depends only on their separation (and the level in the hierarchy), never on the field itself. Any dependence on the current state has to be built up indirectly, through pointwise nonlinearities stacked over many layers.
+A useful question is whether an explicit, inexpensive modulation of the spatial kernel improves field prediction beyond what a stack of fixed filters and nonlinearities already learns. This is an architectural question, not a claim that standard nonlinear networks cannot adapt to their inputs.
 
-For reionization, this is at odds with the physics. Ionizing photons from a source travel until they are absorbed, so whether a source at $r'$ affects a point $r$ depends on the neutral fraction along the way: through an ionized region the coupling is long-range, through neutral gas it is short. The relevant interaction kernel is therefore state-dependent. Attention can represent this but scales as $\mathcal{O}(N^2)$; the stationary architectures scale well but cannot represent it directly.
+Radiative transfer motivates such modulation: absorption depends on the intervening material, so a physical source--receiver response need not be stationary. The present targets, however, come from the semi-numerical prescriptions of \cmfast{}, not a resolved transport calculation. Neither attention based only on endpoint features nor the rhizome's endpoint gates automatically encode optical depth along a ray. Intermediate information can enter through repeated contextual updates, but a physical transport interpretation requires separate evidence.
 
 An operator suited to this problem should combine four properties: (i) global reach, so that interactions across the whole box are possible; (ii) state-dependent coupling, so that the effective connections change as the field evolves; (iii) a cost close to $\mathcal{O}(N\log N)$, so that three-dimensional grids remain tractable; and (iv) a parameterization that is independent of the grid, so that the discretization invariance of the FNO is kept. The rhizome operator, introduced in \cref{sec:rhizome}, is designed around these four requirements.

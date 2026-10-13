@@ -1,108 +1,94 @@
 % =====================================================================
-\section{Neural Operators and FNOs}
+\section{Neural operators and Fourier layers}
 \label{sec:neural-operators}
 % =====================================================================
 
-
-
-% ---------------------------------------------------------------------
 \subsection{Operator learning: problem setup}
 \label{sec:setup}
 
-Neural Operators work by characterizing the inputs and outputs of its mapping as elements of 
-function spaces. Let $f \in \U, g \in \V$ be functions defined on domains 
-$D \subset \mathbb{R}^d$ and $D' \subset \mathbb{R}^{d'}$, respectively. The goal is to learn a mapping 
-$G: U \to V$ such that $g = G(f)$. In practice, we observe these functions on 
-discrete grids $D_n$ and $D'_m$, leading to finite-dimensional representations of the functions. \\
-The function space approach enables us to think of the mapping $G$ as a continuous operator, suitable
-for the application of elements of functional analysis. This perspective allows for the design of 
-architectures that are invariant to the discretization of the input and output functions, 
-making them suitable for tasks where the underlying functions may be sampled at different resolutions.
-For example, in the context of solving PDEs, the input function $f$ could represent initial conditions or parameters of the PDE, while the output function $g$ could represent the solution of the PDE at a later time. The neural operator aims to learn this mapping in a way that is robust to changes in the discretization of the input and output functions. 
+A neural operator learns a map between fields rather than between vectors of a prescribed size. Let $\A$ and $\U$ be normed spaces of functions on domains $D$ and $D'$, and let $\G:\A\to\U$ denote the target map. Given input--output pairs $(f_j,g_j)$, with $g_j=\G(f_j)$, we seek an approximation $\Gtheta$ whose parameters can be used on different discretizations of those fields \citep{kovachki2023neural}. The domains need not be identical, although the architectures considered here predict on the input grid.
 
-% ---------------------------------------------------------------------
+In this work, the input contains the matter-density field and, for the multi-field models, the LOS velocity. Redshift and simulation parameters specify which map is being emulated; they are conditioning variables, distinct from the learned weights $\theta$. The outputs are the neutral hydrogen fraction $\xHI$ and, where included, the brightness temperature $T_b$. The target is the map defined by the simulation and its preprocessing, rather than an exact solution operator of a specified PDE.
+
+The function-space viewpoint separates an architecture from its numerical evaluation. It does not by itself guarantee continuity, resolution transfer or generalization. For example, $L^2$ is useful for field-error norms, whereas bounded measurable fields in $L^\infty$ are convenient for the gated interaction below. Point samples require a sufficiently regular representative; simulation cells can instead be understood as cell averages. Changing the grid must preserve the domain, physical units and meaning of every input channel.
+
 \subsection{Neural operators as stacked kernel integrals}
 \label{sec:neural-operator-layers}
 
-One way of constructing a neural operator is with the approach of the Green's function of a linear operator. The Green's function $G(x,y)$ is the kernel of the integral operator that maps an input function $f$ to an output function $g$ via the integral 
+A linear integral operator maps a field $f$ to a field $g$ through a kernel:
 \begin{equation}
   \label{eq:kernel-integral}
-  g(r) = \int_D \kappa(r,r', \theta) f(r') \, dr'.
+  g(r)=\int_D\kappa(r,r';\theta)f(r')\dd r'.
 \end{equation}
+For vector-valued fields, $\kappa$ is a matrix that mixes channels. A Green's function gives one physical example of such a kernel, when the inverse of a linear differential operator admits an integral representation. A learned kernel need not be a Green's function or satisfy a differential equation.
 
-With some external parameters $\theta$. The choice of kernel $\kappa(r,r', \theta)$ determines the properties of the operator. A common approach is to assume that $\kappa$ is translation invariant, meaning that 
+An integral alone is linear when the kernel is fixed. A neural operator obtains a nonlinear map by combining integral interactions with pointwise transformations. A typical hidden layer is
 \begin{equation}
-  \kappa(r, r', \theta) = \kappa(r-r', \theta).
+  \label{eq:neural-operator-layer}
+  v_{\ell+1}(r)=\sigma\!\left(W_\ell v_\ell(r)+b_\ell(r)
+           +(\Kop_\ell v_\ell)(r)\right),
 \end{equation}
+with lifting $v_0=P(f)$ and projection $\Gtheta(f)=Q(v_L)$. Here $W_\ell$ mixes channels at one position, while $\Kop_\ell$ exchanges information between positions. This distinction matters: a fixed kernel does not make the complete network linear or its response independent of the input.
 
-This assumption turns the operator effectively into a convolution, which can be efficiently computed in Fourier space. The kernel $\kappa$ can be parameterized by a neural network, allowing the operator to learn complex mappings from input to output functions. 
-% ---------------------------------------------------------------------
-\subsection{The Fourier Neural Operator}
+\subsection{The Fourier neural operator}
 \label{sec:fno}
 
-Since the kernel integral operator is translation invariant, it can be efficiently computed in Fourier space:
- \begin{equation}
+On a periodic domain, a translation-invariant kernel depends only on separation, $\kappa(r,r';\theta)=\kappa(r-r';\theta)$. Its integral is a convolution:
+\begin{equation}
   \label{eq:kernel-integral-fourier}
-  g(r) = \int_D \kappa(r-r', \theta) f(r') \, dr' = \mathcal{F}^{-1} \left[ \mathcal{F}[\kappa] \cdot \mathcal{F}[f] \right](r),
- \end{equation}
+  \Kop f=\Finv\!\left[\hat\kappa\,\F[f]\right].
+\end{equation}
+The Fourier neural operator (FNO) parameterizes the matrix-valued multiplier $\hat\kappa$ directly \citep{li2021fourier}. A lifting layer maps the input into $\dv$ channels, several layers of the form \cref{eq:neural-operator-layer} combine spectral and pointwise paths, and a projection produces the output (\cref{fig:fno-architecture}).
 
-
-The Fourier Neural Operator (FNO) leverages this approach in discrete function spaces, where the integral turns into a sum over discrete grid points: 
-
+For a uniform grid, the integral is approximated by
 \begin{equation}
   \label{eq:kernel-integral-discrete}
-  g(r_i) = \sum_{j=1}^{N} \kappa(r_i - r_j, \theta) f(r_j) \Delta r_j,
+  g(r_i)=\sum_{j=1}^{N}\kappa(r_i-r_j;\theta)f(r_j)w_j,
 \end{equation}
-
-where $r_i$ and $r_j$ are points on the discrete grid, and $\Delta r_j$ is the grid spacing. The FNO computes this sum efficiently by transforming the input function $f$ into Fourier space, applying the learned kernel $\kappa$ in Fourier space, and then transforming back to physical space. This is achieved using the Fast Fourier Transform (FFT), which has a computational complexity of $\mathcal{O}(N \log N)$, making it suitable for large-scale problems. A diagram of the FNO architecture is shown in \cref{fig:fno-architecture}. The FNO consists of three main components: a lifting layer that maps the input function $f$ to a higher-dimensional representation, a series of Fourier layers that apply the learned kernel in Fourier space, and a projection layer that maps the output back to the desired function space. The lifting and projection layers are typically implemented as fully connected neural networks, while the Fourier layers consist of FFTs, learned multiplications in Fourier space, and inverse FFTs.
+where $w_j$ is a cell-volume weight, not a one-dimensional spacing unless $d=1$. On the unit-volume domain used below, $w_j=1/N$. The FFT evaluates this discrete convolution without forming all $N^2$ pairs.
 
 \begin{figure*}[!tp]
   \centering
-  \figplaceholder[0.85\linewidth]{fno_architecture.pdf}{FNO block diagram: lift $P$ $\to$
-  Fourier layers ($\F$, $R_\phi$, $\Finv$ + local $W$) $\to$ projection $Q$.}
-  \caption{Fourier Neural Operator architecture.}
+  \figplaceholder[0.85\linewidth]{fno_architecture.pdf}{FNO block diagram: lift $P$ $\to$ Fourier layers ($\F$, $R_\phi$, $\Finv$ + local $W$) $\to$ projection $Q$.}
+  \caption{Fourier neural operator architecture. The spectral path is linear; the pointwise activation makes the complete layer nonlinear.}
   \label{fig:fno-architecture}
 \end{figure*}
 
-While it is useful to think about FNOs from this theoretical framework of kernel integral operators in PDEs, there is no obstacle in removing that context and examining the architecture as a general-purpose operator learning framework. What happens on paper is that the input data is transformed into Fourier space, where a learned kernel is applied. The learned weights correspond to the Fourier coefficients of the kernel, so instead of spatial context, the FNO is learning a global, stationary, spectral representation of the data. This is a central tradeoff of the FNO architecture: it is very efficient and can learn global structure, but it is limited in its ability to learn local, multi-scale features. 
-
-% ---------------------------------------------------------------------
-\subsection{Discretisation invariance and its limits}
+\subsection{Discretization invariance and its limits}
 \label{sec:discretisation}
 
-In practice, the FNO does not learn the kernel $\kappa$ directly. Each Fourier layer stores the Fourier coefficients of the kernel for a fixed set of low wavenumbers and sets all others to zero:
+Each spectral path retains a finite set of Fourier indices $\Lambda$:
 \begin{equation}
   \label{eq:mode-truncation}
-  \hat g(k) =
+  \widehat{\Kop f}(k)=
   \begin{cases}
-    R_\phi(k)\,\hat f(k), & \abs{k} \le \kmax, \\
-    0,                    & \abs{k} > \kmax,
+    R_\phi(k)\hat f(k), & k\in\Lambda,\\
+    0, & k\notin\Lambda,
   \end{cases}
 \end{equation}
-where $\hat f = \F[f]$, and the $R_\phi(k)\in\C^{\dv\times\dv}$ are learned complex matrices that mix the $\dv$ channels of the lifted representation. The parameters therefore live on wavenumbers, not on grid points: their number is set by $\kmax$ and $\dv$ and is independent of the number of grid points $N$. The same weights can be applied to an input sampled on any grid fine enough to resolve the retained modes, i.e.\ as long as the Nyquist wavenumber of the grid exceeds $\kmax$. The remaining components, namely the lifting $P$, the projection $Q$ and the pointwise linear term $W$, act on each grid point separately and are likewise independent of the resolution. This is the sense in which the FNO is discretization invariant, and it enables the \emph{zero-shot super-resolution} reported by \citet{li2021fourier}: a model trained on a coarse grid can be evaluated on a finer grid without retraining.
+with $R_\phi(k)\in\C^{\dv\times\dv}$. We use $\kmax$ for the mode-count setting and $\Lambda$ for the actual retained set. The implementation uses rectangular, possibly anisotropic bands rather than a spherical cutoff. On a box of side $L$, index $k$ corresponds to physical angular wavenumber $2\pi k/L$; a mode count is therefore not itself a wavenumber in $\mathrm{Mpc}^{-1}$.
 
-This invariance is a property of the architecture, not of the learned map, and in practice it holds only approximately. Three caveats are relevant for this work.
+The number of spectral parameters depends on $|\Lambda|$ and $\dv$, rather than on the grid size. Lifting, projection and pointwise maps also share their weights across cells. The weights can therefore be reused on finer grids of the same domain that resolve the retained modes. This is the architectural basis of the FNO's demonstrated zero-shot super-resolution \citep{li2021fourier}. Several qualifications matter here.
 
-\paragraph{Band-limited output.} Since the spectral path only acts on $\abs{k}\le\kmax$, evaluating a trained FNO on a finer grid does not add information on the newly resolved scales. Any structure above $\kmax$ in the output has to be generated by the pointwise nonlinearity $\sigma$ acting on a band-limited signal. Super-resolution with an FNO is therefore closer to a learned, nonlinear interpolation than to a prediction of genuinely new small-scale structure.
+\paragraph{The spectral path is band-limited; the output need not be.} The pointwise path can retain high-frequency information already present in the hidden field, and nonlinear activations can generate additional frequencies. It is therefore incorrect to describe the complete FNO output as band-limited. A finer grid provides additional evaluation points, but reliable predictions on newly resolved physical scales still depend on what the model learned and on the information in its inputs.
 
-\paragraph{Aliasing.} The nonlinearity $\sigma$ creates harmonics above the band of its input. On a continuous domain these would simply be additional high-$k$ modes; on a grid, everything above the Nyquist wavenumber is folded back onto lower wavenumbers. Which modes are folded where depends on $N$, so the same network evaluated on two different grids gives slightly different outputs, even on the shared low-$k$ band. The discrete network is thus not an exact discretization of a single continuous operator. This aliasing error has been analysed systematically by \citet{bartolucci2023representation}.
+\paragraph{Aliasing.} Nonlinear activations and products can create frequencies above the grid's Nyquist limit. Sampling folds these frequencies into the represented band, with an error that depends on the grid. Sharing parameters across resolutions is weaker than requiring the discrete evaluations to represent exactly the same continuous operator. This distinction is formalized by \citet{bartolucci2023representation}.
 
-\paragraph{Resolution-dependent targets.} Even a perfectly discretization invariant architecture cannot compensate for the fact that the data themselves change with resolution. If the training fields come from a simulation at a given cell size, the smoothing scales, sub-grid prescriptions and sharpness of features are tied to that cell size. For the ionization fields considered here, bubble boundaries are resolved down to the grid scale, so a field simulated at higher resolution contains genuinely different small-scale structure that a model trained at lower resolution has never seen.
+\paragraph{Resolution-dependent targets.} Changing the simulation resolution may change smoothing, sub-grid prescriptions and the resolved ionization fronts. Transferring between discretizations of one field and predicting a new simulation at finer resolution are different tests. An architecture that supports the former need not succeed at the latter.
 
-Finally, the FFT assumes periodic boundary conditions. This is natural for coeval simulation boxes, which are periodic by construction, but not for lightcones, whose line-of-sight direction is not periodic. There, padding or windowing is needed; without it, the convolution wraps around and couples the two ends of the lightcone.
+\paragraph{Boundary conditions.} The FFT evaluates a periodic convolution. This matches coeval periodic boxes and the transverse directions of the lightcones. Along the non-periodic LOS, padding and cropping define a different bounded-domain operation. Padding reduces wrap-around effects only over the separations it actually separates; it does not impose a physical boundary condition by itself.
 
-% ---------------------------------------------------------------------
-\subsection{Limitations of a purely spectral kernel}
+\subsection{Limitations of a stationary spectral interaction}
 \label{sec:fno-limitations}
 
-The end of \cref{sec:fno} identified the central tradeoff of the FNO: its kernel is global, stationary and spectral. Each of these properties is a strength for smooth, statistically homogeneous fields, and each becomes a limitation for fields with sharp, localized structure such as ionization maps.
+The FNO offers an efficient global interaction. For ionization fields, the questions are whether its retained modes and pointwise nonlinearities can represent sharp boundaries and whether the learned response adapts sufficiently to heterogeneous regions.
 
-\paragraph{Stationarity.} Because $\kappa$ depends only on $r-r'$, the spectral path applies the same linear response at every position. How strongly a point $r'$ influences a point $r$ cannot depend on the state of the field at either location. All state dependence has to enter through the pointwise terms and the nonlinearity $\sigma$, and builds up only by stacking layers. Many of the processes we want to emulate are not of this form: in reionization, whether ionizing photons from a source reach a given region depends on whether the gas in between is already ionized.
+\paragraph{Stationarity of the linear kernel.} A spectral path applies the same linear kernel at every position. The full network can still have an input-dependent response: nonlinearities, conditioning and repeated layers change its Jacobian. What a standard spectral path lacks is an explicit source--receiver modulation of its kernel within that interaction. This is the distinction addressed by the rhizome.
 
-\paragraph{Mode truncation and sharp features.} The truncation in \cref{eq:mode-truncation} limits each spectral path to wavelengths longer than roughly $L/\kmax$, where $L$ is the box size. Sharp features have broad spectra: the Fourier coefficients of a step decay only as $1/k$, so much of the information that locates an edge sits at high wavenumbers. Truncating these modes produces the familiar smoothing and Gibbs-type ringing around discontinuities. The ionization field in reionization simulations is close to binary, with cells either neutral or ionized, so its bubble boundaries are exactly this kind of feature. The FNO has to reconstruct them from the pointwise path $W$ and the nonlinearity, which only see a single grid cell.
+\paragraph{Sharp features.} A discontinuity has a broad Fourier spectrum; for example, the coefficients of a one-dimensional step decay as $1/|k|$. Truncating a linear Fourier representation can smooth the edge and produce Gibbs ringing. Ionization maps are close to binary, so front placement is sensitive to these scales. Pointwise paths and activations can recover detail, but a small spectral band does not directly transport arbitrary high-frequency structure between cells.
 
-\paragraph{No intermediate scales.} The spectral path is global and the pointwise path is local to one cell, but nothing in between is represented explicitly. Every Fourier layer operates on the full grid with the same set of modes; there is no coarse-to-fine hierarchy and no local receptive field spanning a few cells. Structures at intermediate scales, such as individual bubbles a few to a few tens of cells across, have to be represented as combinations of global modes.
+\paragraph{Intermediate scales.} A standard FNO has no explicit spatial hierarchy or compact local stencil. It can represent interactions at intermediate distances through its kernel, so these scales are not absent; they simply have no dedicated branch as they do in a U-Net.
 
-\paragraph{Cost of more modes.} The obvious remedy, increasing $\kmax$, is expensive. Each retained mode carries a full $\dv\times\dv$ complex matrix, so the number of spectral parameters grows as $\mathcal{O}(\kmax^{d}\,\dv^{2})$, i.e.\ cubically in $\kmax$ for three-dimensional fields. Keeping all modes also removes the implicit regularization that truncation provides.
+\paragraph{Cost of more modes.} A dense multiplier stores $\dv^2$ complex entries per retained mode. Its parameter count grows as $\mathcal{O}(|\Lambda|\dv^2)$, with $|\Lambda|$ growing cubically with an isotropic mode count in three dimensions. Factorizing the channel matrices can reduce this cost, but adds a restriction of its own.
 
-These limitations concern not the accuracy of the FNO on large scales, where it typically performs well, but the fidelity of small-scale, phase-sensitive structure. Such errors can be hidden in the power spectrum, which discards phase information, and become visible in the cross-correlation coefficient $r(k)$ between prediction and truth (\cref{eq:cross-correlation}). They motivate architectures that build spatial structure into the operator explicitly, which are the subject of \cref{sec:spatial-structure}.
+These observations motivate a different interaction law; they do not establish an impossibility result for FNOs. The experiments must determine whether the proposed change improves front placement, cross-correlation and morphology under comparable inputs and training conditions.
